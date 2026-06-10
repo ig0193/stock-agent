@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ label }} — holdings{% endblock %}
+{% block content %}
+<p><a href="/runs">&larr; All runs</a></p>
+<h2>{{ label }}</h2>
+<p class="muted">
+  These holdings are used for
+  {% if kind == 'scheduled' %}the automated/scheduled run.{% else %}manual runs you trigger yourself.{% endif %}
+  The two portfolios are independent.
+</p>
+
+{% if msg %}<p class="banner ok">{{ msg }}</p>{% endif %}
+{% if err %}<p class="banner err">{{ err }}</p>{% endif %}
+
+<h3>Current holdings</h3>
+{% if holdings %}
+<table class="holdings">
+  <thead><tr><th>Ticker</th><th>Qty</th><th>Avg buy price</th><th>Sector</th><th></th></tr></thead>
+  <tbody>
+    {% for h in holdings %}
+    <tr>
+      <td>{{ h.ticker }}</td>
+      <td>{{ h.qty }}</td>
+      <td>{{ '%.2f' % h.avg_buy_price }}</td>
+      <td>{{ h.sector or '—' }}</td>
+      <td>
+        <form method="post" action="/portfolio/{{ kind }}/delete" class="inline">
+          <input type="hidden" name="holding_id" value="{{ h.id }}">
+          <button class="btn tiny danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No holdings yet. Add one below or upload a CSV.</p>
+{% endif %}
+
+<div class="cards">
+  <div class="card">
+    <h3>Add a stock manually</h3>
+    <form method="post" action="/portfolio/{{ kind }}/add" class="form">
+      <label>Ticker <input name="ticker" placeholder="RELIANCE.NS" required></label>
+      <label>Quantity <input name="qty" type="number" step="any" required></label>
+      <label>Avg buy price <input name="avg_buy_price" type="number" step="any" required></label>
+      <label>Sector (optional) <input name="sector" placeholder="IT"></label>
+      <button class="btn">Add holding</button>
+    </form>
+    <p class="hint">Use Yahoo tickers: NSE = <code>TCS.NS</code>, BSE = <code>500570.BO</code>.</p>
+  </div>
+
+  <div class="card">
+    <h3>Upload CSV / Excel export</h3>
+    <form method="post" action="/portfolio/{{ kind }}/upload"
+          enctype="multipart/form-data" class="form">
+      <input type="file" name="file" accept=".csv" required>
+      <label class="radio"><input type="radio" name="mode" value="replace" checked> Replace all</label>
+      <label class="radio"><input type="radio" name="mode" value="append"> Append</label>
+      <button class="btn">Upload</button>
+    </form>
+    <p class="hint">Columns: <code>ticker, qty, avg_buy_price</code> and optional <code>sector</code>.
+      Header aliases like <code>symbol</code>, <code>quantity</code>, <code>avg price</code> are accepted.</p>
+  </div>
+</div>
+{% endblock %}
