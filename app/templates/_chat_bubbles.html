@@ -1,0 +1,11 @@
+{# Renders chat bubbles for a list `messages`. Used for the HTMX append fragment. #}
+{% for m in messages %}
+{% if m.role == 'assistant' %}
+<details class="chat-bubble assistant" open>
+  <summary>Analyst response <span class="collapse-hint">(click to collapse)</span></summary>
+  <div class="md-body">{{ m.content | md }}</div>
+</details>
+{% else %}
+<div class="chat-bubble user">{{ m.content }}</div>
+{% endif %}
+{% endfor %}

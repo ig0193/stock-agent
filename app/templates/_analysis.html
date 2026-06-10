@@ -1,0 +1,147 @@
+{# Renders one recommendation's reasoning + evidence. Expects `rec`. #}
+{% if rec.stance %}<p class="stance">{{ rec.stance }}</p>{% endif %}
+{% if rec.distribution and rec.distribution | length > 1 %}
+<p class="lbl"><b>Conviction</b></p>
+<div class="dist">
+  {% for d in rec.distribution %}
+  <div class="dist-seg action-{{ d.action }}" style="flex:{{ d.confidence or 1 }}"
+       title="{{ d.action | alabel }} {{ d.confidence }}%">{{ d.action | alabel }} {{ d.confidence }}%</div>
+  {% endfor %}
+</div>
+{% endif %}
+<p class="lbl"><b>Why</b></p>
+{% if rec.rationale %}
+<ul class="reasons">{% for r in rec.rationale %}<li>{{ r }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">—</p>{% endif %}
+<p class="lbl"><b>Key risks</b></p>
+{% if rec.key_risks %}
+<ul class="risks">{% for r in rec.key_risks %}<li>{{ r }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">—</p>{% endif %}
+{% if rec.triggers %}
+<p class="lbl"><b>What would change this call</b></p>
+<ul class="triggers">
+  {% for tg in rec.triggers %}
+  <li><span class="action action-{{ tg.action }}">{{ tg.action | alabel }}</span> if {{ tg.condition }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% set ev = rec.evidence_packet %}
+{% if ev %}
+{% set t = ev.technicals or {} %}
+{% set f = ev.fundamentals or {} %}
+{% set s = ev.sector or {} %}
+{% set cp = ev.company_profile or {} %}
+{% set sh = ev.shareholding or {} %}
+<div class="evidence">
+  {% if cp.business_summary or cp.sector %}
+  <div class="ev-group ev-profile">
+    <h4>🏛 Company{% if cp.long_name %} — {{ cp.long_name }}{% endif %}</h4>
+    {% if cp.business_summary %}<p class="summary">{{ cp.business_summary }}</p>{% endif %}
+    <p class="meta">
+      {% if cp.sector %}<span>Sector: {{ cp.sector }}</span>{% endif %}
+      {% if cp.industry %}<span>Industry: {{ cp.industry }}</span>{% endif %}
+      {% if cp.employees %}<span>Employees: {{ '{:,}'.format(cp.employees) }}</span>{% endif %}
+      {% if cp.website %}<span><a href="{{ cp.website }}" target="_blank" rel="noopener">website</a></span>{% endif %}
+    </p>
+  </div>
+  {% endif %}
+  <div class="ev-group">
+    <h4>📈 Trend &amp; technicals</h4>
+    <dl>
+      <dt>Current price</dt><dd>{{ t.current_price | inr }}</dd>
+      <dt>50-day avg</dt>
+      <dd>{{ t.dma50 | inr }}
+        {% if t.get('above_50dma') is not none %}
+          <span class="{{ 'pos' if t.above_50dma else 'neg' }}">({{ 'above' if t.above_50dma else 'below' }})</span>
+        {% endif %}</dd>
+      <dt>200-day avg</dt>
+      <dd>{{ t.dma200 | inr }}
+        {% if t.get('above_200dma') is not none %}
+          <span class="{{ 'pos' if t.above_200dma else 'neg' }}">({{ 'above' if t.above_200dma else 'below' }})</span>
+        {% endif %}</dd>
+      <dt>RSI (14)</dt>
+      {% set rsi = t.get('rsi14') %}
+      <dd>{{ rsi | num(1) }}
+        {% if rsi is not none %}
+          {% if rsi >= 70 %}<span class="neg">overbought</span>
+          {% elif rsi <= 30 %}<span class="pos">oversold</span>{% endif %}
+        {% endif %}</dd>
+      <dt>52-week range</dt><dd>{{ t.low_52w | inr }} – {{ t.high_52w | inr }}</dd>
+      <dt>From 52w high</dt><dd class="neg">{{ t.pct_from_52w_high | pct(true) }}</dd>
+      <dt>Returns</dt>
+      <dd class="returns">
+        {% for lbl, key in [('1D','return_1d_pct'),('1W','return_1w_pct'),('1M','return_1mo_pct'),('3M','return_3mo_pct'),('1Y','return_1y_pct')] %}
+          {% set rv = t.get(key) %}
+          {% if rv is not none %}<span class="{{ 'pos' if rv >= 0 else 'neg' }}">{{ lbl }} {{ rv | pct(true) }}</span>{% endif %}
+        {% endfor %}
+      </dd>
+    </dl>
+  </div>
+
+  <div class="ev-group">
+    <h4>🏢 Fundamentals{% if f.name %} — {{ f.name }}{% endif %}</h4>
+    <dl>
+      <dt>P/E (fwd)</dt><dd>{{ f.pe | num(1) }}{% if f.get('forward_pe') is not none %} ({{ f.forward_pe | num(1) }}){% endif %}</dd>
+      <dt>EPS (TTM)</dt><dd>{{ f.ttm_eps | num(2) }}</dd>
+      <dt>P/B</dt><dd>{{ f.pb | num(2) }}</dd>
+      <dt>Book value</dt><dd>{{ f.book_value | inr }}</dd>
+      <dt>ROE</dt><dd>{{ f.roe_pct | pct }}</dd>
+      <dt>ROCE</dt><dd>{{ f.roce_pct | pct }}</dd>
+      <dt>Debt / equity</dt><dd>{{ f.debt_to_equity | num(2) }}</dd>
+      <dt>Revenue growth</dt><dd><span class="{{ 'pos' if (f.rev_growth_pct or 0) >= 0 else 'neg' }}">{{ f.rev_growth_pct | pct(true) }}</span></dd>
+      <dt>Profit margin</dt><dd>{{ f.profit_margin_pct | pct }}</dd>
+      <dt>Dividend yield</dt><dd>{{ f.dividend_yield_pct | pct }}</dd>
+      <dt>Market cap</dt><dd>{{ f.market_cap | marketcap }}</dd>
+      <dt>Face value</dt><dd>{{ f.face_value | num(0) }}</dd>
+    </dl>
+    {% if f.source %}<p class="src">Source: {{ f.source }}</p>{% endif %}
+  </div>
+
+  <div class="ev-group">
+    <h4>🧭 Sector &amp; relative strength vs Nifty</h4>
+    <dl>
+      <dt>Sector</dt><dd>{{ s.sector or f.sector or '—' }}{% if f.industry %} · {{ f.industry }}{% endif %}</dd>
+      {% for lbl, h in [('1W','1w'),('1M','1mo'),('3M','3mo')] %}
+      {% set rel = s.get('relative_strength_' ~ h ~ '_pct') %}
+      {% if rel is not none %}
+      <dt>{{ lbl }} (stock vs Nifty)</dt>
+      <dd>{{ s.get('stock_return_' ~ h ~ '_pct') | pct(true) }} vs {{ s.get('nifty_return_' ~ h ~ '_pct') | pct(true) }}
+        → <span class="{{ 'pos' if rel >= 0 else 'neg' }}">{{ rel | pct(true) }} rel.</span></dd>
+      {% endif %}
+      {% endfor %}
+    </dl>
+  </div>
+
+  {% if sh.get('promoter_pct') is not none %}
+  {% set q_chg = sh.get('promoter_change_q_pp') %}
+  {% set w_chg = sh.get('promoter_change_window_pp') %}
+  <div class="ev-group">
+    <h4>👥 Shareholding{% if sh.get('as_of') %} (as of {{ sh.as_of }}){% endif %}</h4>
+    <dl>
+      <dt>Promoters</dt>
+      <dd>{{ sh.get('promoter_pct') | pct }}
+        {% if q_chg is not none and q_chg != 0 %}
+          <span class="{{ 'pos' if q_chg >= 0 else 'neg' }}">({{ '%+.2f' % q_chg }}pp QoQ)</span>
+        {% endif %}</dd>
+      {% if w_chg is not none %}
+      <dt>Promoter trend{% if sh.get('window_start') %} (since {{ sh.window_start }}){% endif %}</dt>
+      <dd class="{{ 'pos' if w_chg >= 0 else 'neg' }}">{{ '%+.2f' % w_chg }}pp</dd>
+      {% endif %}
+      <dt>FII / DII</dt><dd>{{ sh.get('fii_pct') | pct }} / {{ sh.get('dii_pct') | pct }}</dd>
+    </dl>
+  </div>
+  {% endif %}
+
+  <div class="ev-group ev-news">
+    <h4>📰 Recent headlines</h4>
+    {% set items = (ev.news_digest or '').split(' | ') %}
+    {% if items and items[0] and items[0] != 'No recent headlines found.' %}
+    <ul>{% for h in items %}<li>{{ h }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">No recent headlines found.</p>{% endif %}
+  </div>
+
+  {% if ev.data_warnings %}
+  <div class="warn">⚠ Data warnings: {{ ev.data_warnings | join(', ') }}</div>
+  {% endif %}
+</div>
+{% endif %}

@@ -15,7 +15,7 @@ import os
 import time
 from typing import Dict
 
-from .models import Decision
+from .models import ACTIONS, Decision
 
 MODEL = os.environ.get("STOCK_AGENT_MODEL", "claude-sonnet-4-6")
 log = logging.getLogger("app.decision")
@@ -68,19 +68,42 @@ Use of knowledge (ANCHORED HYBRID):
 - Read the dated news digest for thesis-changing catalysts; ignore generic noise and
   stale items. Never invent specific figures not present in the packet.
 
-Actions:
-- BUY  : strong signals AND price attractive vs the user's average -> add.
-- HOLD : no change warranted (may include "wait out a market-wide drawdown").
-- CUT  : trim partially (reduce risk / book partial profit; conviction lowered, not gone).
-- SELL : exit fully (thesis broken, or large profit with deteriorating signals).
+Data granularity: returns are provided at 1D / 1W / 1M / 3M / 1Y for both the stock
+and the Nifty, with relative strength at 1W / 1M / 3M. Use the horizon that fits your
+point — don't default everything to 1M. Short-term (1D/1W) shows momentum/bounces;
+3M/1Y shows the durable trend.
+
+Two modes — check the "is_watchlist" flag in the packet:
+A) OWNED position (is_watchlist = false) — actions:
+   - BUY  : strong signals AND price attractive vs the user's average -> add.
+   - HOLD : no change warranted (may include "wait out a market-wide drawdown").
+   - CUT  : trim partially (reduce risk / book partial profit; conviction lowered).
+   - SELL : exit fully (thesis broken, or large profit with deteriorating signals).
+B) WATCHLIST candidate (is_watchlist = true) — there is NO position, qty/avg are
+   absent, so there is no P&L to anchor to. Decide purely on forward attractiveness:
+   - BUY   : attractive to initiate a position now (quality + valuation + setup).
+   - WATCH : worth owning but not yet — wait for a better price, base, or catalyst.
+   - AVOID : not worth buying (weak business, overvalued, or broken setup).
+   Use ONLY these three for watchlist stocks; never HOLD/CUT/SELL something not owned.
 
 Output:
-- primary_action + primary_confidence (0-100): your single best call.
-- alternatives: include a secondary action with its confidence ONLY when the call is
-  genuinely close (e.g. HOLD primary, BUY secondary). Leave empty when you're clear.
+- distribution: your honest conviction split across actions, confidences summing to
+  ~100, ordered by confidence (first = primary call). A single label often hides real
+  ambiguity — when you are genuinely torn, SHOW it (e.g. HOLD 55 / CUT 35 / BUY 10).
+  When you are clear, one action can carry most of the weight. Don't manufacture a
+  split that the evidence doesn't support, and don't collapse a real one.
+- stance: one plain-English sentence telling the holder what to actually do, capturing
+  any nuance the labels miss. It must follow from the evidence and the distribution.
 - rationale: 3-6 SHORT bullet points, each a single specific claim; state whether any
   weakness/strength is market-wide or stock-specific. No long paragraphs.
 - key_risks: 2-5 SHORT bullet points — what could make this call wrong.
+- triggers: REQUIRED and especially important for HOLD/WATCH (otherwise the user has
+  nothing to act on). Give the concrete conditions that would change your call — at
+  minimum one up-trigger (what would make you BUY/add) and one down-trigger (what
+  would make you CUT/SELL/AVOID). Be specific and checkable: name price levels (e.g.
+  "add below ₹720"), indicator thresholds ("RSI < 30", "reclaims 50DMA"), or events
+  ("if next quarter NIM compresses", "if the ADNOC deal closes"). Anchor levels to
+  the actual current price and 52-week range in the packet.
 
 Rules:
 - You ADVISE only; you never trade.
@@ -94,16 +117,31 @@ _TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "primary_action": {"type": "string", "enum": ["BUY", "HOLD", "CUT", "SELL"]},
-            "primary_confidence": {"type": "integer", "minimum": 0, "maximum": 100},
-            "alternatives": {
+            "stance": {
+                "type": "string",
+                "description": "ONE plain-English sentence capturing your actual, nuanced "
+                               "recommendation — what you'd tell the holder to DO. This is "
+                               "where you express nuance a single label can't, when the "
+                               "evidence warrants it (e.g. 'Hold your core, but booking a "
+                               "portion into this strength is reasonable'). Let it follow "
+                               "honestly from the evidence; do not force any stance.",
+            },
+            "distribution": {
                 "type": "array",
-                "description": "Optional secondary views, only when the call is genuinely "
-                               "close. 0-2 items, none equal to primary_action.",
+                "minItems": 1,
+                "maxItems": 4,
+                "description": "Your honest conviction split across actions, as integer "
+                               "confidences that SUM TO ~100. Order by confidence desc; the "
+                               "first item is the primary call. If you are genuinely torn "
+                               "(e.g. thesis intact but stretched), reflect that split here "
+                               "rather than collapsing to a single label. Owned position: use "
+                               "BUY/HOLD/CUT/SELL (CUT = trim / book partial profit). Watchlist "
+                               "(not owned): use BUY/WATCH/AVOID.",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "action": {"type": "string", "enum": ["BUY", "HOLD", "CUT", "SELL"]},
+                        "action": {"type": "string",
+                                   "enum": ["BUY", "HOLD", "CUT", "SELL", "WATCH", "AVOID"]},
                         "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
                     },
                     "required": ["action", "confidence"],
@@ -111,7 +149,7 @@ _TOOL = {
             },
             "rationale": {
                 "type": "array",
-                "description": "3-6 concise bullet points justifying the primary action.",
+                "description": "3-6 concise bullet points justifying the call.",
                 "items": {"type": "string"},
             },
             "key_risks": {
@@ -119,8 +157,27 @@ _TOOL = {
                 "description": "2-5 concise bullet points: what could make this call wrong.",
                 "items": {"type": "string"},
             },
+            "triggers": {
+                "type": "array",
+                "description": "Forward conditions that would CHANGE the call — this is what "
+                               "makes a HOLD/WATCH actionable. Always include at least one "
+                               "up-trigger (what would make you BUY/add) and one down-trigger "
+                               "(what would make you CUT/SELL/AVOID). Be concrete: price levels, "
+                               "indicator thresholds (e.g. RSI<30, reclaim 50DMA), or specific "
+                               "events (e.g. next quarter's margin, a deal closing).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string",
+                                   "enum": ["BUY", "HOLD", "CUT", "SELL", "WATCH", "AVOID"]},
+                        "condition": {"type": "string"},
+                    },
+                    "required": ["action", "condition"],
+                },
+            },
         },
-        "required": ["primary_action", "primary_confidence", "rationale", "key_risks"],
+        "required": ["stance", "distribution", "rationale",
+                     "key_risks", "triggers"],
     },
 }
 
@@ -131,13 +188,39 @@ _CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claud
 _OAUTH_BETA = "oauth-2025-04-20"
 
 
-def decide(packet: Dict) -> Decision:
-    ticker = packet.get("ticker", "?")
+def llm_available() -> bool:
+    return bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+                or os.environ.get("ANTHROPIC_API_KEY"))
+
+
+def build_client_and_system(system_text):
+    """Return (client, system, label) honoring OAuth-token-or-API-key auth.
+
+    `system` is a list-of-blocks (OAuth needs the Claude Code identity first) or a
+    plain string (API key). Raises RuntimeError if no credential is configured.
+    """
+    import anthropic
+
     oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if oauth_token or api_key:
+    if oauth_token:
+        client = anthropic.Anthropic(auth_token=oauth_token, api_key=None,
+                                     default_headers={"anthropic-beta": _OAUTH_BETA})
+        system = [
+            {"type": "text", "text": _CLAUDE_CODE_IDENTITY},
+            {"type": "text", "text": system_text},
+        ]
+        return client, system, "OAuth token"
+    if api_key:
+        return anthropic.Anthropic(api_key=api_key), system_text, "API key"
+    raise RuntimeError("no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN configured")
+
+
+def decide(packet: Dict) -> Decision:
+    ticker = packet.get("ticker", "?")
+    if llm_available():
         try:
-            return _decide_llm(packet, api_key=api_key, oauth_token=oauth_token)
+            return _decide_llm(packet)
         except Exception as exc:  # noqa: BLE001 - any failure -> safe fallback
             log.warning("%s: LLM decision failed (%s: %s) -> rule-based fallback",
                         ticker, type(exc).__name__, exc)
@@ -151,29 +234,15 @@ def decide(packet: Dict) -> Decision:
     return _decide_rules(packet)
 
 
-def _decide_llm(packet: Dict, api_key=None, oauth_token=None) -> Decision:
-    import anthropic
-
+def _decide_llm(packet: Dict) -> Decision:
     ticker = packet.get("ticker", "?")
-    # Prefer the OAuth (Claude Code) token if present: Bearer auth + beta header +
-    # Claude Code identity as the first system block. Otherwise standard API key.
-    if oauth_token:
-        log.info("%s: calling LLM via OAuth token (model=%s)", ticker, MODEL)
-        client = anthropic.Anthropic(auth_token=oauth_token, api_key=None,
-                                     default_headers={"anthropic-beta": _OAUTH_BETA})
-        system = [
-            {"type": "text", "text": _CLAUDE_CODE_IDENTITY},
-            {"type": "text", "text": _RUBRIC},
-        ]
-    else:
-        log.info("%s: calling LLM via API key (model=%s)", ticker, MODEL)
-        client = anthropic.Anthropic(api_key=api_key)
-        system = _RUBRIC
+    client, system, label = build_client_and_system(_RUBRIC)
+    log.info("%s: calling LLM via %s (model=%s)", ticker, label, MODEL)
 
     t0 = time.time()
     msg = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=3072,  # must fit rationale + risks + triggers + alternatives
         system=system,
         tools=[_TOOL],
         tool_choice={"type": "tool", "name": "record_decision"},
@@ -184,30 +253,42 @@ def _decide_llm(packet: Dict, api_key=None, oauth_token=None) -> Decision:
             }
         ],
     )
+    if getattr(msg, "stop_reason", None) == "max_tokens":
+        log.warning("%s: response hit max_tokens — output may be truncated", ticker)
     for block in msg.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "record_decision":
             d = block.input
             usage = getattr(msg, "usage", None)
             tokens = (f"{usage.input_tokens}in/{usage.output_tokens}out"
                       if usage else "n/a")
-            # Keep only valid, non-duplicate alternatives.
-            primary = d["primary_action"]
-            alts = []
-            for a in (d.get("alternatives") or []):
-                act = a.get("action")
-                if act in ("BUY", "HOLD", "CUT", "SELL") and act != primary:
-                    alts.append({"action": act, "confidence": int(a.get("confidence", 0))})
-            alt_str = (" alt: " + ", ".join(f"{a['action']} {a['confidence']}%" for a in alts)
-                       if alts else "")
-            log.info("%s: LLM decided %s (%s%%)%s in %.1fs [%s tokens]",
-                     ticker, primary, d.get("primary_confidence"), alt_str,
-                     time.time() - t0, tokens)
+            # Normalize the conviction distribution: valid actions, dedup, sorted desc.
+            dist, seen = [], set()
+            for item in (d.get("distribution") or []):
+                act = item.get("action")
+                if act in ACTIONS and act not in seen:
+                    seen.add(act)
+                    dist.append({"action": act, "confidence": int(item.get("confidence", 0))})
+            dist.sort(key=lambda x: -x["confidence"])
+            if not dist:
+                raise RuntimeError("empty distribution")
+            primary = dist[0]
+            alts = dist[1:]
+            dist_str = ", ".join(f"{x['action']} {x['confidence']}%" for x in dist)
+            log.info("%s: LLM decided [%s] in %.1fs [%s tokens]",
+                     ticker, dist_str, time.time() - t0, tokens)
+            triggers = [
+                {"action": tg.get("action"), "condition": tg.get("condition")}
+                for tg in (d.get("triggers") or [])
+                if tg.get("condition")
+            ]
             return Decision(
-                action=primary,
-                confidence=int(d["primary_confidence"]),
+                action=primary["action"],
+                confidence=primary["confidence"],
+                stance=(d.get("stance") or "").strip(),
                 rationale=list(d.get("rationale") or []),
                 key_risks=list(d.get("key_risks") or []),
                 alternatives=alts,
+                triggers=triggers,
             )
     raise RuntimeError("model did not return a structured decision")
 
@@ -252,7 +333,34 @@ def _decide_rules(packet: Dict) -> Decision:
         elif pnl >= 25:
             reasons.append(f"sitting on {pnl}% gain")
 
-    # Map score + P&L to a base (stock-only) action.
+    is_watch = packet.get("is_watchlist")
+    confidence = min(85, 45 + abs(score) * 12)
+    regime = (packet.get("market_regime") or {}).get("label")
+    rel = (packet.get("sector") or {}).get("relative_strength_1mo_pct")
+    macro_note = ""
+
+    if is_watch:
+        # No position: decide whether to initiate. BUY / WATCH / AVOID.
+        if score >= 2:
+            action = "BUY"
+        elif score <= -1:
+            action = "AVOID"
+        else:
+            action = "WATCH"
+        if regime == "risk-off" and action == "BUY" and not (rsi is not None and rsi <= 35):
+            action = "WATCH"
+            confidence = 55
+            macro_note = (" Setup is constructive but the market is RISK-OFF; "
+                          "watching for a better entry rather than initiating now.")
+        return Decision(
+            action=action, confidence=confidence,
+            stance=_RULE_STANCE.get(action, ""),
+            rationale=_rule_rationale(reasons, score, macro_note),
+            key_risks=_RULE_RISKS, alternatives=[],
+            triggers=_rule_triggers(tech, is_watch=True),
+        )
+
+    # ---- Owned position: map score + P&L to an action ----
     if score >= 2:
         action = "BUY"
     elif score <= -2:
@@ -262,12 +370,7 @@ def _decide_rules(packet: Dict) -> Decision:
     else:
         action = "HOLD"
 
-    confidence = min(85, 45 + abs(score) * 12)
-
     # ---- Macro overlay: don't sell into broad market weakness ----
-    regime = (packet.get("market_regime") or {}).get("label")
-    rel = (packet.get("sector") or {}).get("relative_strength_1mo_pct")
-    macro_note = ""
     if regime == "risk-off" and action in ("SELL", "CUT"):
         # Is the fall market-wide, or specific to this stock? If the stock is
         # roughly tracking the market (not materially underperforming), the
@@ -300,17 +403,62 @@ def _decide_rules(packet: Dict) -> Decision:
         confidence = min(90, confidence + 5)
         macro_note = " Market regime is RISK-ON, supporting trend-following signals."
 
-    rationale = ["Heuristic decision (no LLM key)."]
-    rationale += [r.capitalize() for r in reasons] if reasons else ["Insufficient data."]
-    rationale.append(f"Net trend score {score}.")
-    if macro_note:
-        rationale.append(macro_note.strip())
-    risks = [
-        "Rule-based fallback uses trend, P&L and market regime only — it does not "
-        "read news sentiment or fundamentals nuance.",
-        "Set an API key / OAuth token for full analyst-style analysis.",
-    ]
     if not reasons and not macro_note:
         confidence = 30
     return Decision(action=action, confidence=confidence,
-                    rationale=rationale, key_risks=risks, alternatives=[])
+                    stance=_RULE_STANCE.get(action, ""),
+                    rationale=_rule_rationale(reasons, score, macro_note),
+                    key_risks=_RULE_RISKS, alternatives=[],
+                    triggers=_rule_triggers(tech, is_watch=False))
+
+
+_RULE_RISKS = [
+    "Rule-based fallback uses trend, P&L and market regime only — it does not "
+    "read news sentiment or fundamentals nuance.",
+    "Set an API key / OAuth token for full analyst-style analysis.",
+]
+
+_RULE_STANCE = {
+    "BUY": "Trend signals support adding to the position.",
+    "HOLD": "Signals warrant no change — hold the position.",
+    "CUT": "Signals have weakened — trimming the position is reasonable.",
+    "SELL": "Signals have broken down — exiting is warranted.",
+    "WATCH": "Worth watching — wait for a better setup before initiating.",
+    "AVOID": "Setup is weak — better to avoid initiating here.",
+}
+
+
+def _rule_rationale(reasons, score, macro_note):
+    out = ["Heuristic decision (no LLM key)."]
+    out += [r.capitalize() for r in reasons] if reasons else ["Insufficient data."]
+    out.append(f"Net trend score {score}.")
+    if macro_note:
+        out.append(macro_note.strip())
+    return out
+
+
+def _rule_triggers(tech, is_watch):
+    """Concrete forward conditions derived from the technical levels."""
+    dma50, dma200 = tech.get("dma50"), tech.get("dma200")
+    low_52w = tech.get("low_52w")
+    trg = []
+    if is_watch:
+        if dma200:
+            trg.append({"action": "BUY",
+                        "condition": f"pulls back toward the 200DMA (~₹{dma200}) or RSI falls below 35"})
+        else:
+            trg.append({"action": "BUY", "condition": "dips on weakness with RSI below 35"})
+        if low_52w:
+            trg.append({"action": "AVOID",
+                        "condition": f"breaks below its 52-week low (~₹{low_52w})"})
+    else:
+        if dma50:
+            trg.append({"action": "BUY",
+                        "condition": f"reclaims and holds above the 50DMA (~₹{dma50})"})
+        if dma200:
+            trg.append({"action": "CUT",
+                        "condition": f"breaks decisively below the 200DMA (~₹{dma200})"})
+        if not trg:
+            trg.append({"action": "BUY",
+                        "condition": "price recovers back above its moving averages"})
+    return trg

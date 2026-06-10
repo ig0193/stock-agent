@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 from datetime import datetime
+from typing import Optional
 
 from fastapi import FastAPI, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -13,7 +14,9 @@ from fastapi.templating import Jinja2Templates
 
 from . import db
 from .analysis import run_analysis
+from .chat import chat_reply
 from .config import llm_status, load_env
+from .decision import llm_available
 from .logging_config import setup_logging
 from .models import KIND_MANUAL, KIND_SCHEDULED, VALID_KINDS, Holding
 from .portfolio_io import parse_csv
@@ -106,7 +109,82 @@ def fmt_dt(v):
     return f"{base} · {rel}"
 
 
+def _md_inline(s):
+    import re
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    return s
+
+
+def _md_row(s):
+    return [c.strip() for c in s.strip().strip("|").split("|")]
+
+
+def _is_table_sep(s):
+    s = s.strip()
+    import re
+    return bool(s) and "|" in s and "-" in s and re.fullmatch(r"[\s|:\-]+", s)
+
+
+def md_to_html(text):
+    """Render a safe subset of markdown (headings, bullets, tables, bold) to HTML.
+
+    Input is HTML-escaped first, so the output is safe to mark as markup.
+    """
+    import re
+    from markupsafe import Markup, escape
+    if not text:
+        return Markup("")
+    lines = str(escape(text)).split("\n")
+    out, in_ul, i, n = [], False, 0, len(lines)
+
+    def close_ul():
+        nonlocal in_ul
+        if in_ul:
+            out.append("</ul>"); in_ul = False
+
+    while i < n:
+        s = lines[i].strip()
+        # Table: a "| ... |" row followed by a "|---|---|" separator.
+        if s.startswith("|") and i + 1 < n and _is_table_sep(lines[i + 1]):
+            close_ul()
+            header = _md_row(s)
+            i += 2
+            rows = []
+            while i < n and lines[i].strip().startswith("|"):
+                rows.append(_md_row(lines[i].strip())); i += 1
+            th = "".join(f"<th>{_md_inline(c)}</th>" for c in header)
+            body = "".join("<tr>" + "".join(f"<td>{_md_inline(c)}</td>" for c in r)
+                           + "</tr>" for r in rows)
+            out.append(f'<table class="md-table"><thead><tr>{th}</tr></thead>'
+                       f"<tbody>{body}</tbody></table>")
+            continue
+        if not s or re.match(r"^-{3,}$", s):
+            close_ul(); i += 1; continue
+        heading = re.match(r"^#{1,6}\s+(.*)$", s)
+        bullet = re.match(r"^[-*]\s+(.*)$", s)
+        if bullet:
+            if not in_ul:
+                out.append("<ul>"); in_ul = True
+            out.append(f"<li>{_md_inline(bullet.group(1))}</li>"); i += 1; continue
+        close_ul()
+        if heading:
+            out.append(f'<p class="md-h">{_md_inline(heading.group(1))}</p>')
+        else:
+            out.append(f"<p>{_md_inline(s)}</p>")
+        i += 1
+    close_ul()
+    return Markup("".join(out))
+
+
+def action_label(action):
+    """User-facing label. CUT (owned-position trim) reads clearer as TRIM."""
+    return "TRIM" if action == "CUT" else action
+
+
 templates.env.filters["dt"] = fmt_dt
+templates.env.filters["md"] = md_to_html
+templates.env.filters["alabel"] = action_label
 templates.env.filters["inr"] = fmt_inr
 templates.env.filters["pct"] = fmt_pct
 templates.env.filters["num"] = fmt_num
@@ -162,6 +240,57 @@ def run_detail(request: Request, run_id: int):
     )
 
 
+_SUGGESTIONS_OWNED = [
+    "Should I book partial profit here?",
+    "Should I average up — and where would my new average be?",
+    "What price would make this a clear add?",
+    "What's the single biggest risk to this position?",
+]
+_SUGGESTIONS_WATCH = [
+    "Is now a good entry, or should I wait?",
+    "What price would make this a clear BUY?",
+    "What are the main red flags here?",
+    "How does it compare to its sector peers?",
+]
+
+
+@app.get("/runs/{run_id}/stock/{rec_id}", response_class=HTMLResponse)
+def stock_detail(request: Request, run_id: int, rec_id: int):
+    run = db.get_run(run_id)
+    rec = db.get_recommendation(rec_id)
+    if not run or not rec or rec.get("run_id") != run_id:
+        return RedirectResponse(url="/runs", status_code=303)
+    is_watch = (rec.get("evidence_packet") or {}).get("is_watchlist")
+    return templates.TemplateResponse(
+        "stock_detail.html",
+        {"request": request, "run": run, "rec": rec,
+         "messages": db.get_chat_messages(rec_id),
+         "llm_on": llm_available(),
+         "suggestions": _SUGGESTIONS_WATCH if is_watch else _SUGGESTIONS_OWNED},
+    )
+
+
+@app.post("/runs/{run_id}/stock/{rec_id}/chat", response_class=HTMLResponse)
+def stock_chat(request: Request, run_id: int, rec_id: int, message: str = Form(...)):
+    rec = db.get_recommendation(rec_id)
+    message = (message or "").strip()
+    if not rec or rec.get("run_id") != run_id or not message:
+        return HTMLResponse("")
+    db.add_chat_message(rec_id, "user", message)
+    history = db.get_chat_messages(rec_id)
+    try:
+        reply = chat_reply(rec, history)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("chat failed for rec %s: %s", rec_id, exc)
+        reply = f"⚠ Sorry, I couldn't answer just now ({type(exc).__name__}). Please try again."
+    db.add_chat_message(rec_id, "assistant", reply)
+    new_msgs = [{"role": "user", "content": message},
+                {"role": "assistant", "content": reply}]
+    return templates.TemplateResponse(
+        "_chat_bubbles.html", {"request": request, "messages": new_msgs},
+    )
+
+
 @app.get("/portfolio/{kind}", response_class=HTMLResponse)
 def portfolio_page(request: Request, kind: str, msg: str = "", err: str = ""):
     if kind not in VALID_KINDS:
@@ -175,10 +304,13 @@ def portfolio_page(request: Request, kind: str, msg: str = "", err: str = ""):
 
 
 @app.post("/portfolio/{kind}/add")
-def portfolio_add(kind: str, ticker: str = Form(...), qty: float = Form(...),
-                  avg_buy_price: float = Form(...), sector: str = Form("")):
+def portfolio_add(kind: str, ticker: str = Form(...),
+                  qty: Optional[float] = Form(None),
+                  avg_buy_price: Optional[float] = Form(None),
+                  sector: str = Form("")):
     if kind not in VALID_KINDS:
         return RedirectResponse(url="/runs", status_code=303)
+    # Blank qty/price => watchlist (analyze as a not-yet-purchased candidate).
     db.add_holding(kind, Holding(
         ticker=ticker.strip().upper(), qty=qty, avg_buy_price=avg_buy_price,
         sector=sector.strip() or None,

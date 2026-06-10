@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ rec.ticker }} — Run #{{ run.id }}{% endblock %}
+{% block content %}
+<p><a href="/runs/{{ run.id }}">&larr; Run #{{ run.id }}</a></p>
+<h2>{{ rec.ticker }}
+  <span class="action action-{{ rec.action }}">{{ rec.action | alabel }}</span>
+  <span class="muted">{{ rec.confidence }}%</span>
+  {% if rec.evidence_packet.is_watchlist %}<span class="tag">watchlist</span>{% endif %}
+</h2>
+<p class="position muted">
+  {% if rec.avg_buy_price is not none %}Avg ₹{{ '%.2f' % rec.avg_buy_price }}{% if rec.qty is not none %} × {{ rec.qty }}{% endif %} · {% endif %}
+  {% if rec.current_price is not none %}LTP ₹{{ '%.2f' % rec.current_price }}{% endif %}
+  {% if rec.unrealized_pnl_pct is not none %} · <span class="{{ 'pos' if rec.unrealized_pnl_pct >= 0 else 'neg' }}">{{ '%+.1f' % rec.unrealized_pnl_pct }}%</span>{% endif %}
+</p>
+
+<div class="detail">
+  {% include "_analysis.html" %}
+</div>
+
+<section class="chat">
+  <h3>💬 Ask a follow-up about {{ rec.ticker }}</h3>
+  {% if not llm_on %}
+  <p class="banner err">Chat needs an API key or OAuth token. Set one (see SETUP.md) to ask follow-ups.</p>
+  {% endif %}
+
+  <div id="chat-thread" class="chat-thread">
+    {% if messages %}
+      {% for m in messages %}
+        {% if m.role == 'assistant' %}
+        <details class="chat-bubble assistant" open>
+          <summary>Analyst response <span class="collapse-hint">(click to collapse)</span></summary>
+          <div class="md-body">{{ m.content | md }}</div>
+        </details>
+        {% else %}
+        <div class="chat-bubble user">{{ m.content }}</div>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <p class="muted chat-empty">No questions yet. The agent already has this stock's full analysis in context — ask anything.</p>
+    {% endif %}
+  </div>
+
+  {% if llm_on %}
+  <div class="suggestions">
+    {% for q in suggestions %}
+    <button type="button" class="chip" onclick="ask(this.textContent)">{{ q }}</button>
+    {% endfor %}
+  </div>
+  <form class="chat-form" hx-post="/runs/{{ run.id }}/stock/{{ rec.id }}/chat"
+        hx-target="#chat-thread" hx-swap="beforeend"
+        hx-disabled-elt="find button, find textarea"
+        hx-on::after-request="if(event.detail.successful){this.reset();}">
+    <textarea name="message" rows="2" required
+      placeholder="e.g. I'm up 33% — should I book partial profit or add more?"></textarea>
+    <div class="chat-actions">
+      <span class="htmx-indicator thinking">⏳ Analyst is thinking…</span>
+      <button class="btn" type="submit">Send</button>
+    </div>
+  </form>
+  <script>
+    function ask(text){var f=document.querySelector('.chat-form'); f.message.value=text; f.requestSubmit();}
+  </script>
+  {% endif %}
+</section>
+{% endblock %}

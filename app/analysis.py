@@ -19,7 +19,7 @@ log = logging.getLogger("app.analysis")
 
 
 def build_packet(holding: Holding, market_weather: str,
-                 nifty_return_1mo: Optional[float],
+                 nifty_returns: Optional[Dict],
                  market_regime: Optional[Dict] = None) -> EvidencePacket:
     provider = get_provider()
     warnings: List[str] = []
@@ -49,16 +49,16 @@ def build_packet(holding: Holding, market_weather: str,
     if current is not None and holding.avg_buy_price:
         pnl = round((current - holding.avg_buy_price) / holding.avg_buy_price * 100, 1)
 
-    # Sector relative strength vs Nifty (1-month).
-    sector_block: Dict = {
-        "sector": holding.sector or fundamentals.get("sector"),
-        "nifty_return_1mo_pct": nifty_return_1mo,
-        "stock_return_1mo_pct": tech.get("return_1mo_pct"),
-    }
-    if tech.get("return_1mo_pct") is not None and nifty_return_1mo is not None:
-        sector_block["relative_strength_1mo_pct"] = round(
-            tech["return_1mo_pct"] - nifty_return_1mo, 1
-        )
+    # Sector / relative strength vs Nifty across horizons (1W / 1M / 3M).
+    nifty_returns = nifty_returns or {}
+    sector_block: Dict = {"sector": holding.sector or fundamentals.get("sector")}
+    for horizon in ("1w", "1mo", "3mo"):
+        key = f"return_{horizon}_pct"
+        srv, nrv = tech.get(key), nifty_returns.get(key)
+        sector_block[f"stock_return_{horizon}_pct"] = srv
+        sector_block[f"nifty_return_{horizon}_pct"] = nrv
+        sector_block[f"relative_strength_{horizon}_pct"] = (
+            round(srv - nrv, 1) if srv is not None and nrv is not None else None)
 
     name = fundamentals.get("name") or holding.ticker
     headlines = fetch_headlines(name)
@@ -86,6 +86,7 @@ def build_packet(holding: Holding, market_weather: str,
         market_weather=market_weather,
         market_regime=market_regime or {},
         as_of_date=date.today().isoformat(),
+        is_watchlist=holding.is_watchlist,
         data_warnings=warnings,
     )
 
@@ -113,7 +114,8 @@ def run_analysis(trigger: str) -> int:
         provider = get_provider()
         nifty_hist = provider.history(NIFTY, period="1y")
         nifty_tech = compute_technicals(nifty_hist)
-        nifty_1mo = nifty_tech.get("return_1mo_pct")
+        nifty_returns = {k: nifty_tech.get(k) for k in
+                         ("return_1w_pct", "return_1mo_pct", "return_3mo_pct")}
         market_regime = classify_regime(nifty_tech)
         market_weather = build_market_weather(nifty_tech, market_regime)
         log.info("Run #%d: market regime=%s (Nifty 1M=%s%%, 3M=%s%%)",
@@ -124,7 +126,7 @@ def run_analysis(trigger: str) -> int:
             t0 = time.time()
             log.info("Run #%d: analyzing %s (qty=%s, avg=%s)",
                      run_id, h.ticker, h.qty, h.avg_buy_price)
-            packet = build_packet(h, market_weather, nifty_1mo, market_regime)
+            packet = build_packet(h, market_weather, nifty_returns, market_regime)
             decision = decide(packet.to_dict())
             log.info("Run #%d: %s -> %s (%d%%) in %.1fs",
                      run_id, h.ticker, decision.action, decision.confidence,
@@ -139,9 +141,11 @@ def run_analysis(trigger: str) -> int:
                     "unrealized_pnl_pct": packet.unrealized_pnl_pct,
                     "action": decision.action,
                     "confidence": decision.confidence,
+                    "stance": decision.stance,
                     "rationale": decision.rationale,
                     "key_risks": decision.key_risks,
                     "alternatives": decision.alternatives,
+                    "triggers": decision.triggers,
                     "evidence_packet": packet.to_dict(),
                 },
             )

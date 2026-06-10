@@ -62,6 +62,9 @@ Columns `ticker, qty, avg_buy_price` (+ optional `sector`). Header aliases like
 `symbol`, `quantity`, `avg price` are accepted. Use Yahoo tickers — NSE `TCS.NS`,
 BSE `500570.BO`. A sample is in `data/portfolio_sample.csv`.
 
+Leave `qty` and `avg_buy_price` **blank** for a **watchlist** stock (not yet owned) —
+it's analyzed as a candidate with a **BUY / WATCH / AVOID** call.
+
 ## Scheduled (automated) runs
 
 The same analysis entry point is exposed for cron:

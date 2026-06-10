@@ -19,9 +19,9 @@
   <tbody>
     {% for h in holdings %}
     <tr>
-      <td>{{ h.ticker }}</td>
-      <td>{{ h.qty }}</td>
-      <td>{{ '%.2f' % h.avg_buy_price }}</td>
+      <td>{{ h.ticker }}{% if h.avg_buy_price is none or h.qty is none %} <span class="tag">watchlist</span>{% endif %}</td>
+      <td>{{ h.qty if h.qty is not none else '—' }}</td>
+      <td>{{ '%.2f' % h.avg_buy_price if h.avg_buy_price is not none else '—' }}</td>
       <td>{{ h.sector or '—' }}</td>
       <td>
         <form method="post" action="/portfolio/{{ kind }}/delete" class="inline">
@@ -42,12 +42,14 @@
     <h3>Add a stock manually</h3>
     <form method="post" action="/portfolio/{{ kind }}/add" class="form">
       <label>Ticker <input name="ticker" placeholder="RELIANCE.NS" required></label>
-      <label>Quantity <input name="qty" type="number" step="any" required></label>
-      <label>Avg buy price <input name="avg_buy_price" type="number" step="any" required></label>
+      <label>Quantity <input name="qty" type="number" step="any" placeholder="(blank = watchlist)"></label>
+      <label>Avg buy price <input name="avg_buy_price" type="number" step="any" placeholder="(blank = watchlist)"></label>
       <label>Sector (optional) <input name="sector" placeholder="IT"></label>
-      <button class="btn">Add holding</button>
+      <button class="btn">Add</button>
     </form>
-    <p class="hint">Use Yahoo tickers: NSE = <code>TCS.NS</code>, BSE = <code>500570.BO</code>.</p>
+    <p class="hint">Use Yahoo tickers: NSE = <code>TCS.NS</code>, BSE = <code>500570.BO</code>.
+      <br>Leave qty &amp; price <b>blank</b> to add a <b>watchlist</b> stock (not yet purchased) —
+      it'll be analyzed for BUY / WATCH / AVOID.</p>
   </div>
 
   <div class="card">

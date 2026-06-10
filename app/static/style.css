@@ -53,21 +53,39 @@ tr:last-child td{border-bottom:none}
 .action-HOLD{background:rgba(154,163,178,.15);color:var(--hold)}
 .action-CUT{background:rgba(240,165,0,.15);color:var(--cut)}
 .action-SELL{background:rgba(239,69,101,.15);color:var(--sell)}
+.action-WATCH{background:rgba(79,140,255,.15);color:var(--accent)}
+.action-AVOID{background:rgba(239,69,101,.15);color:var(--sell)}
 .pos{color:var(--buy)} .neg{color:var(--sell)}
 
 .detail-row td{background:var(--panel2)}
 .detail p{margin:6px 0}
 .detail .lbl{margin:10px 0 2px;font-size:13px}
+.detail .stance{margin:4px 0 10px;padding:10px 14px;background:var(--panel);
+  border-left:3px solid var(--accent);border-radius:6px;font-size:15px;font-weight:600}
+.dist{display:flex;gap:3px;margin:4px 0 8px;height:30px;border-radius:6px;overflow:hidden}
+.dist-seg{display:flex;align-items:center;justify-content:center;font-size:12px;
+  font-weight:600;white-space:nowrap;padding:0 6px;min-width:0;overflow:hidden}
+.dist-seg.action-BUY{background:rgba(47,191,113,.25);color:var(--buy)}
+.dist-seg.action-HOLD{background:rgba(154,163,178,.25);color:var(--text)}
+.dist-seg.action-CUT{background:rgba(240,165,0,.25);color:var(--cut)}
+.dist-seg.action-SELL{background:rgba(239,69,101,.25);color:var(--sell)}
+.dist-seg.action-WATCH{background:rgba(79,140,255,.25);color:var(--accent)}
+.dist-seg.action-AVOID{background:rgba(239,69,101,.25);color:var(--sell)}
 .detail .alts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .detail ul.reasons,.detail ul.risks{margin:2px 0 8px;padding-left:20px;font-size:13px}
 .detail ul.reasons li{margin:3px 0}
 .detail ul.risks li{margin:3px 0;color:var(--muted)}
+.detail ul.triggers{margin:2px 0 8px;padding-left:20px;font-size:13px;list-style:none}
+.detail ul.triggers li{margin:4px 0}
+.detail ul.triggers .action{margin-right:6px}
 .evidence{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .ev-group{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .ev-group h4{margin:0 0 8px;font-size:13px;color:var(--text)}
 .ev-group dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0;font-size:13px}
 .ev-group dt{color:var(--muted)}
 .ev-group dd{margin:0;text-align:right;color:var(--text)}
+.ev-group dd.returns{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.ev-group dd.returns span{white-space:nowrap}
 .ev-group .src{margin:8px 0 0;font-size:11px;color:var(--muted);text-align:right}
 .ev-profile{grid-column:1 / -1}
 .ev-profile .summary{margin:0 0 8px;font-size:13px;color:var(--text)}
@@ -91,6 +109,49 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px}
 .banner.err{background:rgba(239,69,101,.12);color:var(--sell)}
 .empty{color:var(--muted);padding:18px;text-align:center;background:var(--panel);
   border:1px dashed var(--line);border-radius:12px}
+.position{margin-top:-6px}
+
+/* Chat */
+.chat{margin-top:28px;border-top:1px solid var(--line);padding-top:18px}
+.chat h3{margin:0 0 12px}
+.chat-thread{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.chat-empty{text-align:left;padding:0}
+.chat-bubble{max-width:85%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.5}
+.chat-bubble.user{align-self:flex-end;background:var(--accent);color:#fff;
+  border-bottom-right-radius:3px;white-space:pre-wrap}
+.chat-bubble.assistant{align-self:flex-start;background:var(--panel2);
+  border:1px solid var(--line);border-bottom-left-radius:3px}
+details.chat-bubble.assistant{padding:0}
+details.chat-bubble.assistant>summary{cursor:pointer;list-style:none;padding:10px 14px;
+  font-weight:600;font-size:13px;color:var(--muted);user-select:none}
+details.chat-bubble.assistant>summary::-webkit-details-marker{display:none}
+details.chat-bubble.assistant>summary::before{content:"▾ ";color:var(--accent)}
+details.chat-bubble.assistant:not([open])>summary::before{content:"▸ "}
+.collapse-hint{font-weight:400;opacity:.6}
+details.chat-bubble.assistant:not([open]) .collapse-hint::after{content:" — expand"}
+.chat-bubble.assistant .md-body{padding:0 14px 12px}
+.chat-bubble.assistant p{margin:6px 0}
+.chat-bubble.assistant p.md-h{font-weight:700;margin:10px 0 4px}
+.chat-bubble.assistant ul{margin:6px 0;padding-left:20px}
+.chat-bubble.assistant li{margin:3px 0}
+.chat-bubble.assistant code{background:var(--bg);padding:1px 5px;border-radius:4px}
+.md-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:13px;
+  background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.md-table th,.md-table td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left}
+.md-table th{background:var(--panel);color:var(--muted);font-weight:600}
+.md-table tr:last-child td{border-bottom:none}
+.suggestions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.chip{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:20px;padding:6px 12px;font-size:12px;cursor:pointer}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chat-form{display:flex;flex-direction:column;gap:8px}
+.chat-form textarea{background:var(--bg);border:1px solid var(--line);border-radius:10px;
+  padding:10px;color:var(--text);font-family:inherit;font-size:14px;resize:vertical}
+.chat-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px}
+.thinking{color:var(--muted);font-size:13px}
+.htmx-indicator{display:none}
+.htmx-request .htmx-indicator{display:inline}
+.htmx-request.chat-form button{opacity:.5}
 details.weather{background:var(--panel);border:1px solid var(--line);
   border-radius:10px;padding:12px 14px;margin:14px 0}
 details.weather summary{cursor:pointer}

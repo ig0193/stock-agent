@@ -35,8 +35,8 @@ def init_db() -> None:
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 portfolio_id  INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
                 ticker        TEXT NOT NULL,
-                qty           REAL NOT NULL,
-                avg_buy_price REAL NOT NULL,
+                qty           REAL,            -- NULL => watchlist (not yet purchased)
+                avg_buy_price REAL,            -- NULL => watchlist
                 sector        TEXT
             );
 
@@ -63,6 +63,14 @@ def init_db() -> None:
                 key_risks          TEXT,
                 evidence_packet    TEXT               -- JSON blob (audit trail)
             );
+
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                rec_id     INTEGER NOT NULL REFERENCES recommendations(id) ON DELETE CASCADE,
+                role       TEXT NOT NULL,       -- 'user' | 'assistant'
+                content    TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         # Lightweight migration: add columns introduced after first release.
@@ -70,6 +78,31 @@ def init_db() -> None:
             "PRAGMA table_info(recommendations)").fetchall()}
         if "alternatives" not in cols:
             conn.execute("ALTER TABLE recommendations ADD COLUMN alternatives TEXT")
+        if "triggers" not in cols:
+            conn.execute("ALTER TABLE recommendations ADD COLUMN triggers TEXT")
+        if "stance" not in cols:
+            conn.execute("ALTER TABLE recommendations ADD COLUMN stance TEXT")
+
+        # Migration: make holdings.qty / avg_buy_price nullable (watchlist support).
+        # SQLite can't drop a NOT NULL constraint in place, so rebuild the table.
+        h_info = conn.execute("PRAGMA table_info(holdings)").fetchall()
+        if any(r["name"] == "qty" and r["notnull"] == 1 for r in h_info):
+            conn.executescript(
+                """
+                CREATE TABLE holdings_new (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    portfolio_id  INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+                    ticker        TEXT NOT NULL,
+                    qty           REAL,
+                    avg_buy_price REAL,
+                    sector        TEXT
+                );
+                INSERT INTO holdings_new (id, portfolio_id, ticker, qty, avg_buy_price, sector)
+                    SELECT id, portfolio_id, ticker, qty, avg_buy_price, sector FROM holdings;
+                DROP TABLE holdings;
+                ALTER TABLE holdings_new RENAME TO holdings;
+                """
+            )
 
         # Ensure both portfolios always exist.
         for kind in VALID_KINDS:
@@ -183,8 +216,9 @@ def add_recommendation(run_id: int, rec: Dict) -> None:
             """
             INSERT INTO recommendations
               (run_id, ticker, qty, avg_buy_price, current_price, unrealized_pnl_pct,
-               action, confidence, rationale, key_risks, alternatives, evidence_packet)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               action, confidence, stance, rationale, key_risks, alternatives, triggers,
+               evidence_packet)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -195,9 +229,11 @@ def add_recommendation(run_id: int, rec: Dict) -> None:
                 rec.get("unrealized_pnl_pct"),
                 rec.get("action"),
                 rec.get("confidence"),
+                rec.get("stance"),
                 json.dumps(rec.get("rationale")),
                 json.dumps(rec.get("key_risks")),
                 json.dumps(rec.get("alternatives") or []),
+                json.dumps(rec.get("triggers") or []),
                 json.dumps(rec.get("evidence_packet", {})),
             ),
         )
@@ -238,7 +274,24 @@ def _as_list(value):
 
 
 # Action ordering for display (most urgent first).
-_ACTION_ORDER = {"SELL": 0, "CUT": 1, "BUY": 2, "HOLD": 3}
+_ACTION_ORDER = {"SELL": 0, "CUT": 1, "AVOID": 2, "BUY": 3, "WATCH": 4, "HOLD": 5}
+
+
+def _hydrate_rec(row) -> Dict:
+    d = dict(row)
+    try:
+        d["evidence_packet"] = json.loads(d.get("evidence_packet") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        d["evidence_packet"] = {}
+    d["rationale"] = _as_list(d.get("rationale"))
+    d["key_risks"] = _as_list(d.get("key_risks"))
+    d["alternatives"] = _as_list(d.get("alternatives"))
+    d["triggers"] = _as_list(d.get("triggers"))
+    d["stance"] = d.get("stance") or ""
+    # Full conviction distribution = primary (from action/confidence) + alternatives.
+    d["distribution"] = ([{"action": d.get("action"), "confidence": d.get("confidence")}]
+                         + [a for a in d["alternatives"] if isinstance(a, dict)])
+    return d
 
 
 def get_recommendations(run_id: int) -> List[Dict]:
@@ -247,17 +300,35 @@ def get_recommendations(run_id: int) -> List[Dict]:
             "SELECT * FROM recommendations WHERE run_id = ? ORDER BY confidence DESC",
             (run_id,),
         ).fetchall()
-    recs = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d["evidence_packet"] = json.loads(d.get("evidence_packet") or "{}")
-        except (json.JSONDecodeError, TypeError):
-            d["evidence_packet"] = {}
-        d["rationale"] = _as_list(d.get("rationale"))
-        d["key_risks"] = _as_list(d.get("key_risks"))
-        d["alternatives"] = _as_list(d.get("alternatives"))
-        recs.append(d)
+    recs = [_hydrate_rec(r) for r in rows]
     recs.sort(key=lambda x: (_ACTION_ORDER.get(x.get("action"), 9),
                              -(x.get("confidence") or 0)))
     return recs
+
+
+def get_recommendation(rec_id: int) -> Optional[Dict]:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM recommendations WHERE id = ?", (rec_id,)).fetchone()
+    return _hydrate_rec(row) if row else None
+
+
+# ---------- Chat ----------
+
+def add_chat_message(rec_id: int, role: str, content: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO chat_messages (rec_id, role, content, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (rec_id, role, content, _now()),
+        )
+
+
+def get_chat_messages(rec_id: int) -> List[Dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT role, content, created_at FROM chat_messages "
+            "WHERE rec_id = ? ORDER BY id",
+            (rec_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]

@@ -119,10 +119,14 @@ Stock Analysis Agent starting — LLM ENABLED via API key (model=claude-sonnet-4
    - **CSV upload:** columns `ticker, qty, avg_buy_price` (+ optional `sector`).
      A sample is in `data/portfolio_sample.csv`. Use Yahoo tickers — NSE `TCS.NS`,
      BSE `500570.BO`.
+   - **Watchlist (not yet purchased):** leave **qty and avg buy price blank** (in the
+     form or CSV). The stock is then analyzed as a candidate and gets a
+     **BUY / WATCH / AVOID** call instead of BUY/HOLD/CUT/SELL.
 2. **Run analysis.** From the home page (`/runs`) click **▶ Run analysis now**.
    The run appears in the table and auto-refreshes from `running` → `done`.
-3. **View results.** Click a run to see each stock's action (BUY / HOLD / CUT /
-   SELL), confidence, and — on expanding a row — the rationale, key risks, and the
+3. **View results.** Click a run to see each stock's action (owned: BUY / HOLD /
+   CUT / SELL; watchlist: BUY / WATCH / AVOID), confidence, an optional secondary
+   view, and — on expanding a row — bulleted rationale, key risks, and the
    full evidence (technicals, fundamentals, company profile, shareholding, news).
 
 ---

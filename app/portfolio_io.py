@@ -35,11 +35,13 @@ def parse_csv(raw: bytes) -> Tuple[List[Holding], List[str]]:
 
     field_map = {f: _map_header(f) for f in reader.fieldnames}
     canon = set(field_map.values())
-    for required in ("ticker", "qty", "avg_buy_price"):
-        if required not in canon:
-            errors.append(f"Missing required column: {required}")
-    if errors:
-        return [], errors
+    # Only ticker is required. Blank qty/avg_buy_price => watchlist (not yet bought).
+    if "ticker" not in canon:
+        return [], ["Missing required column: ticker"]
+
+    def _num(raw: str):
+        raw = (raw or "").strip()
+        return float(raw) if raw else None
 
     holdings: List[Holding] = []
     for i, row in enumerate(reader, start=2):  # row 1 is header
@@ -48,8 +50,8 @@ def parse_csv(raw: bytes) -> Tuple[List[Holding], List[str]]:
         if not ticker:
             continue
         try:
-            qty = float(norm.get("qty", "") or 0)
-            avg = float(norm.get("avg_buy_price", "") or 0)
+            qty = _num(norm.get("qty"))
+            avg = _num(norm.get("avg_buy_price"))
         except ValueError:
             errors.append(f"Row {i}: non-numeric qty/price for {ticker}, skipped.")
             continue

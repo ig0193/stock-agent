@@ -70,9 +70,13 @@ def compute_technicals(history: pd.DataFrame) -> Dict:
         round((current - low_52w) / low_52w * 100, 1) if low_52w else None
     )
 
-    # Simple trailing returns.
+    # Trailing returns across horizons (trading days): 1d, 1w, 1m, 3m, 6m, 1y.
+    out["return_1d_pct"] = _trailing_return(close, 1)
+    out["return_1w_pct"] = _trailing_return(close, 5)
     out["return_1mo_pct"] = _trailing_return(close, 21)
     out["return_3mo_pct"] = _trailing_return(close, 63)
+    out["return_6mo_pct"] = _trailing_return(close, 126)
+    out["return_1y_pct"] = _trailing_return(close, 252)
     return out
 
 

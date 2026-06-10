@@ -24,6 +24,9 @@ def classify_regime(nifty_tech: Dict) -> Dict:
     r1m = nifty_tech.get("return_1mo_pct")
     r3m = nifty_tech.get("return_3mo_pct")
 
+    r1d = nifty_tech.get("return_1d_pct")
+    r1w = nifty_tech.get("return_1w_pct")
+
     label: Optional[str] = None
     if above50 is None and above200 is None:
         label = None  # unknown
@@ -36,13 +39,23 @@ def classify_regime(nifty_tech: Dict) -> Dict:
     else:
         label = "neutral"
 
+    # Note a short-term bounce inside a downtrend so it isn't read as pure risk-off.
+    short_term = None
+    if label == "risk-off" and r1w is not None and r1d is not None and r1w > 0 and r1d > 0:
+        short_term = "short-term bounce (1W and 1D positive)"
+
     return {
         "label": label,
+        "short_term": short_term,
         "nifty_above_50dma": above50,
         "nifty_above_200dma": above200,
         "nifty_rsi": rsi,
+        "nifty_1d_pct": r1d,
+        "nifty_1w_pct": r1w,
         "nifty_1mo_pct": r1m,
         "nifty_3mo_pct": r3m,
+        "nifty_6mo_pct": nifty_tech.get("return_6mo_pct"),
+        "nifty_1y_pct": nifty_tech.get("return_1y_pct"),
     }
 
 
@@ -59,17 +72,21 @@ def build_market_weather(nifty_tech: Optional[Dict] = None,
 
     if nifty_tech:
         cur = nifty_tech.get("current_price")
-        r1m = nifty_tech.get("return_1mo_pct")
-        r3m = nifty_tech.get("return_3mo_pct")
         trend_bits = []
         if nifty_tech.get("above_50dma") is not None:
             trend_bits.append("above 50DMA" if nifty_tech["above_50dma"] else "below 50DMA")
         if nifty_tech.get("above_200dma") is not None:
             trend_bits.append("above 200DMA" if nifty_tech["above_200dma"] else "below 200DMA")
         label = regime.get("label")
-        prefix = f"Market regime: {label.upper()}. " if label else ""
+        prefix = f"Market regime: {label.upper()}"
+        if regime.get("short_term"):
+            prefix += f" ({regime['short_term']})"
+        prefix += ". "
+        rets = (f"1D {nifty_tech.get('return_1d_pct')}%, 1W {nifty_tech.get('return_1w_pct')}%, "
+                f"1M {nifty_tech.get('return_1mo_pct')}%, 3M {nifty_tech.get('return_3mo_pct')}%, "
+                f"1Y {nifty_tech.get('return_1y_pct')}%")
         parts.append(
-            f"{prefix}Nifty 50 at {cur} (1M {r1m}%, 3M {r3m}%, RSI {nifty_tech.get('rsi14')}; "
+            f"{prefix}Nifty 50 at {cur} ({rets}; RSI {nifty_tech.get('rsi14')}; "
             f"{', '.join(trend_bits) if trend_bits else 'trend n/a'})."
         )
 

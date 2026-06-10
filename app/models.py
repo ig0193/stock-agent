@@ -9,15 +9,22 @@ KIND_SCHEDULED = "scheduled"
 KIND_MANUAL = "manual"
 VALID_KINDS = (KIND_SCHEDULED, KIND_MANUAL)
 
-ACTIONS = ("BUY", "HOLD", "CUT", "SELL")
+# Owned positions use the first four; un-owned "watchlist" candidates use the last two.
+ACTIONS = ("BUY", "HOLD", "CUT", "SELL", "WATCH", "AVOID")
+OWNED_ACTIONS = ("BUY", "HOLD", "CUT", "SELL")
+WATCHLIST_ACTIONS = ("BUY", "WATCH", "AVOID")
 
 
 @dataclass
 class Holding:
     ticker: str
-    qty: float
-    avg_buy_price: float
+    qty: Optional[float] = None          # None => watchlist (not yet purchased)
+    avg_buy_price: Optional[float] = None
     sector: Optional[str] = None
+
+    @property
+    def is_watchlist(self) -> bool:
+        return self.avg_buy_price is None or self.qty is None
 
 
 @dataclass
@@ -37,6 +44,7 @@ class EvidencePacket:
     market_weather: str = ""
     market_regime: Dict = field(default_factory=dict)
     as_of_date: str = ""
+    is_watchlist: bool = False
     data_warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
@@ -46,7 +54,9 @@ class EvidencePacket:
 @dataclass
 class Decision:
     action: str                              # primary action, one of ACTIONS
-    confidence: int                          # 0..100
+    confidence: int                          # 0..100 (primary's share of the distribution)
+    stance: str = ""                         # one-line plain-English nuanced recommendation
     rationale: List[str] = field(default_factory=list)   # bullet points
     key_risks: List[str] = field(default_factory=list)   # bullet points
-    alternatives: List[Dict] = field(default_factory=list)  # [{action, confidence}]
+    alternatives: List[Dict] = field(default_factory=list)  # non-primary distribution entries [{action, confidence}]
+    triggers: List[Dict] = field(default_factory=list)   # [{action, condition}] — what would change the call
