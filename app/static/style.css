@@ -18,7 +18,7 @@ h2{margin-top:0}
 .muted{color:var(--muted)}
 a{color:var(--accent)}
 
-.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:28px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
 .card h3{margin-top:0}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -155,4 +155,9 @@ details.chat-bubble.assistant:not([open]) .collapse-hint::after{content:" — ex
 details.weather{background:var(--panel);border:1px solid var(--line);
   border-radius:10px;padding:12px 14px;margin:14px 0}
 details.weather summary{cursor:pointer}
+table.adhoc{margin-bottom:14px}
+table.adhoc th{font-size:12px}
+table.adhoc input{width:100%;background:var(--bg);border:1px solid var(--line);
+  border-radius:6px;padding:7px;color:var(--text);font-size:13px}
+table.adhoc td{vertical-align:middle}
 @media(max-width:720px){.cards{grid-template-columns:1fr}}

@@ -91,13 +91,15 @@ def build_packet(holding: Holding, market_weather: str,
     )
 
 
-def run_analysis(trigger: str) -> int:
-    """Run analysis over the portfolio matching `trigger` ('scheduled'|'manual').
+def run_analysis(trigger: str, holdings: Optional[List[Holding]] = None) -> int:
+    """Run analysis and persist a run with one recommendation per holding.
 
-    Returns the run id. Persists the run, market weather, and one
-    recommendation (with full evidence packet) per holding.
+    `trigger` is recorded on the run ('scheduled' | 'manual' | 'individual').
+    If `holdings` is given (e.g. an ad-hoc individual run), those are analyzed
+    directly; otherwise the saved portfolio matching `trigger` is loaded.
     """
-    holdings = db.get_holdings(trigger)
+    if holdings is None:
+        holdings = db.get_holdings(trigger)
     run_id = db.create_run(trigger)
     log.info("Run #%d started (trigger=%s) over %d holding(s)",
              run_id, trigger, len(holdings))

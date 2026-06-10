@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Individual stock run{% endblock %}
+{% block content %}
+<p><a href="/runs">&larr; All runs</a></p>
+<h2>Individual stock run</h2>
+<p class="muted">Analyze one or more stocks right now, without touching your saved
+  portfolios. Leave <b>qty</b> &amp; <b>avg price</b> blank to analyze a stock as a
+  watchlist candidate (BUY / WATCH / AVOID); fill them to analyze an owned position.</p>
+
+{% if err %}<p class="banner err">{{ err }}</p>{% endif %}
+
+<form method="post" action="/run/individual">
+  <table class="adhoc" id="adhoc-rows">
+    <thead>
+      <tr><th>Ticker *</th><th>Qty</th><th>Avg buy price</th><th>Sector</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for i in range(3) %}
+      <tr class="adhoc-row">
+        <td><input name="ticker" placeholder="RELIANCE.NS"></td>
+        <td><input name="qty" type="number" step="any" placeholder="(blank = watchlist)"></td>
+        <td><input name="avg_buy_price" type="number" step="any" placeholder="(blank = watchlist)"></td>
+        <td><input name="sector" placeholder="(optional)"></td>
+        <td><button type="button" class="btn tiny danger" onclick="rmRow(this)">✕</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="row">
+    <button type="button" class="btn secondary" onclick="addRow()">+ Add another stock</button>
+    <button class="btn" type="submit">▶ Run analysis</button>
+  </div>
+  <p class="hint">Yahoo tickers — NSE <code>TCS.NS</code>, BSE <code>500570.BO</code>.
+    This run appears in the runs list tagged <span class="tag">individual</span>.</p>
+</form>
+
+<template id="adhoc-template">
+  <tr class="adhoc-row">
+    <td><input name="ticker" placeholder="RELIANCE.NS"></td>
+    <td><input name="qty" type="number" step="any" placeholder="(blank = watchlist)"></td>
+    <td><input name="avg_buy_price" type="number" step="any" placeholder="(blank = watchlist)"></td>
+    <td><input name="sector" placeholder="(optional)"></td>
+    <td><button type="button" class="btn tiny danger" onclick="rmRow(this)">✕</button></td>
+  </tr>
+</template>
+
+<script>
+  function addRow(){
+    var tpl=document.getElementById('adhoc-template');
+    var clone=tpl.content.cloneNode(true);
+    document.querySelector('#adhoc-rows tbody').appendChild(clone);
+  }
+  function rmRow(btn){
+    var body=document.querySelector('#adhoc-rows tbody');
+    if(body.querySelectorAll('tr').length>1){ btn.closest('tr').remove(); }
+    else { btn.closest('tr').querySelectorAll('input').forEach(function(i){i.value='';}); }
+  }
+</script>
+{% endblock %}

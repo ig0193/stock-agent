@@ -5,7 +5,7 @@ import logging
 import os
 import threading
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import FastAPI, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -199,9 +199,10 @@ KIND_LABELS = {KIND_SCHEDULED: "Automated (scheduled) run",
                KIND_MANUAL: "Manual run"}
 
 
-def _run_in_background(trigger: str) -> None:
-    log.info("Triggering '%s' analysis run in background", trigger)
-    threading.Thread(target=run_analysis, args=(trigger,), daemon=True).start()
+def _run_in_background(trigger: str, holdings=None) -> None:
+    log.info("Triggering '%s' analysis run in background (%s holdings)",
+             trigger, "ad-hoc" if holdings is not None else "saved")
+    threading.Thread(target=run_analysis, args=(trigger, holdings), daemon=True).start()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -225,6 +226,43 @@ def trigger_run(kind: str):
     if kind not in VALID_KINDS:
         return RedirectResponse(url="/runs", status_code=303)
     _run_in_background(kind)
+    return RedirectResponse(url="/runs", status_code=303)
+
+
+@app.get("/individual", response_class=HTMLResponse)
+def individual_form(request: Request, err: str = ""):
+    return templates.TemplateResponse(
+        "individual.html", {"request": request, "err": err})
+
+
+@app.post("/run/individual")
+def trigger_individual(
+    ticker: List[str] = Form(default=[]),
+    qty: List[str] = Form(default=[]),
+    avg_buy_price: List[str] = Form(default=[]),
+    sector: List[str] = Form(default=[]),
+):
+    """One-off analysis of freshly entered stocks. Not saved to any portfolio."""
+    def _num(seq, i):
+        v = (seq[i].strip() if i < len(seq) else "")
+        try:
+            return float(v) if v else None
+        except ValueError:
+            return None
+
+    holdings = []
+    for i, tk in enumerate(ticker):
+        tk = (tk or "").strip().upper()
+        if not tk:
+            continue
+        holdings.append(Holding(
+            ticker=tk, qty=_num(qty, i), avg_buy_price=_num(avg_buy_price, i),
+            sector=(sector[i].strip() if i < len(sector) and sector[i].strip() else None),
+        ))
+    if not holdings:
+        return RedirectResponse(url="/individual?err=Add+at+least+one+ticker",
+                                status_code=303)
+    _run_in_background("individual", holdings=holdings)
     return RedirectResponse(url="/runs", status_code=303)
 
 
