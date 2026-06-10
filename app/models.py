@@ -36,6 +36,7 @@ class EvidencePacket:
     news_digest: str = ""
     market_weather: str = ""
     market_regime: Dict = field(default_factory=dict)
+    as_of_date: str = ""
     data_warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
@@ -44,7 +45,8 @@ class EvidencePacket:
 
 @dataclass
 class Decision:
-    action: str          # one of ACTIONS
-    confidence: int      # 0..100
-    rationale: str
-    key_risks: str
+    action: str                              # primary action, one of ACTIONS
+    confidence: int                          # 0..100
+    rationale: List[str] = field(default_factory=list)   # bullet points
+    key_risks: List[str] = field(default_factory=list)   # bullet points
+    alternatives: List[Dict] = field(default_factory=list)  # [{action, confidence}]

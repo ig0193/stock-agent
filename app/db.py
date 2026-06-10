@@ -65,6 +65,12 @@ def init_db() -> None:
             );
             """
         )
+        # Lightweight migration: add columns introduced after first release.
+        cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(recommendations)").fetchall()}
+        if "alternatives" not in cols:
+            conn.execute("ALTER TABLE recommendations ADD COLUMN alternatives TEXT")
+
         # Ensure both portfolios always exist.
         for kind in VALID_KINDS:
             conn.execute(
@@ -177,8 +183,8 @@ def add_recommendation(run_id: int, rec: Dict) -> None:
             """
             INSERT INTO recommendations
               (run_id, ticker, qty, avg_buy_price, current_price, unrealized_pnl_pct,
-               action, confidence, rationale, key_risks, evidence_packet)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               action, confidence, rationale, key_risks, alternatives, evidence_packet)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -189,8 +195,9 @@ def add_recommendation(run_id: int, rec: Dict) -> None:
                 rec.get("unrealized_pnl_pct"),
                 rec.get("action"),
                 rec.get("confidence"),
-                rec.get("rationale"),
-                rec.get("key_risks"),
+                json.dumps(rec.get("rationale")),
+                json.dumps(rec.get("key_risks")),
+                json.dumps(rec.get("alternatives") or []),
                 json.dumps(rec.get("evidence_packet", {})),
             ),
         )
@@ -217,6 +224,19 @@ def get_run(run_id: int) -> Optional[Dict]:
     return dict(row) if row else None
 
 
+def _as_list(value):
+    """Parse a JSON-list TEXT column; tolerate legacy plain-text rows."""
+    if value is None or value == "":
+        return []
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return [value]  # legacy single-string rationale/risks
+    if isinstance(parsed, list):
+        return parsed
+    return [parsed] if parsed else []
+
+
 # Action ordering for display (most urgent first).
 _ACTION_ORDER = {"SELL": 0, "CUT": 1, "BUY": 2, "HOLD": 3}
 
@@ -234,6 +254,9 @@ def get_recommendations(run_id: int) -> List[Dict]:
             d["evidence_packet"] = json.loads(d.get("evidence_packet") or "{}")
         except (json.JSONDecodeError, TypeError):
             d["evidence_packet"] = {}
+        d["rationale"] = _as_list(d.get("rationale"))
+        d["key_risks"] = _as_list(d.get("key_risks"))
+        d["alternatives"] = _as_list(d.get("alternatives"))
         recs.append(d)
     recs.sort(key=lambda x: (_ACTION_ORDER.get(x.get("action"), 9),
                              -(x.get("confidence") or 0)))

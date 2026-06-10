@@ -34,7 +34,9 @@ def load_env() -> None:
 
 def llm_status() -> str:
     """One-line description of whether the LLM path is active."""
+    model = os.environ.get("STOCK_AGENT_MODEL", "claude-sonnet-4-6")
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return f"LLM ENABLED via OAuth token (model={model})"
     if os.environ.get("ANTHROPIC_API_KEY"):
-        model = os.environ.get("STOCK_AGENT_MODEL", "claude-sonnet-4-6")
-        return f"LLM ENABLED (model={model})"
-    return "LLM DISABLED (no ANTHROPIC_API_KEY) — using rule-based fallback"
+        return f"LLM ENABLED via API key (model={model})"
+    return "LLM DISABLED (no API key / OAuth token) — using rule-based fallback"

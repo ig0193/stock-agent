@@ -69,7 +69,22 @@ export ANTHROPIC_API_KEY=sk-ant-api03-...
 If you put this in `~/.zshrc`, note it's only loaded by **interactive** shells —
 run the app from your normal terminal (not a script/cron) and it'll be picked up.
 
-**Optional overrides** (either method):
+**Alternative — Claude Code OAuth token (uses your Claude subscription):**
+
+Instead of an API key you can use a Claude Code OAuth token (`sk-ant-oat01-…`):
+
+```bash
+# in .env or your shell
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+```
+
+If set, it takes precedence over `ANTHROPIC_API_KEY`. This draws on your Claude
+**subscription** quota rather than API billing. ⚠️ It is an **unofficial** path —
+these tokens are intended for the Claude Code client, so it may break if Anthropic
+changes things; a proper API key is the supported option. The agent falls back to
+rule-based decisions if the token is rejected.
+
+**Optional overrides** (any method):
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -89,7 +104,7 @@ Open **<http://127.0.0.1:8000>**.
 On startup the log line confirms your config, e.g.:
 
 ```
-Stock Analysis Agent starting — LLM ENABLED (model=claude-sonnet-4-6)
+Stock Analysis Agent starting — LLM ENABLED via API key (model=claude-sonnet-4-6)
 ```
 
 (or `LLM DISABLED … using rule-based fallback` if no valid key).

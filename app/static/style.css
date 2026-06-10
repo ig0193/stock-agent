@@ -57,6 +57,11 @@ tr:last-child td{border-bottom:none}
 
 .detail-row td{background:var(--panel2)}
 .detail p{margin:6px 0}
+.detail .lbl{margin:10px 0 2px;font-size:13px}
+.detail .alts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.detail ul.reasons,.detail ul.risks{margin:2px 0 8px;padding-left:20px;font-size:13px}
+.detail ul.reasons li{margin:3px 0}
+.detail ul.risks li{margin:3px 0;color:var(--muted)}
 .evidence{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .ev-group{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .ev-group h4{margin:0 0 8px;font-size:13px;color:var(--text)}

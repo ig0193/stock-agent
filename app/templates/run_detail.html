@@ -43,8 +43,21 @@
     <tr id="d{{ rec.id }}" class="detail-row" style="display:none">
       <td colspan="7">
         <div class="detail">
-          <p><b>Why:</b> {{ rec.rationale }}</p>
-          <p><b>Key risks:</b> {{ rec.key_risks }}</p>
+          {% if rec.alternatives %}
+          <p class="alts"><b>Also considered:</b>
+            {% for a in rec.alternatives %}
+              <span class="action action-{{ a.action }}">{{ a.action }} {{ a.confidence }}%</span>
+            {% endfor %}
+          </p>
+          {% endif %}
+          <p class="lbl"><b>Why</b></p>
+          {% if rec.rationale %}
+          <ul class="reasons">{% for r in rec.rationale %}<li>{{ r }}</li>{% endfor %}</ul>
+          {% else %}<p class="muted">—</p>{% endif %}
+          <p class="lbl"><b>Key risks</b></p>
+          {% if rec.key_risks %}
+          <ul class="risks">{% for r in rec.key_risks %}<li>{{ r }}</li>{% endfor %}</ul>
+          {% else %}<p class="muted">—</p>{% endif %}
           {% set ev = rec.evidence_packet %}
           {% if ev %}
           {% set t = ev.technicals or {} %}

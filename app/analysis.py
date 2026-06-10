@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import date
 from typing import Dict, List, Optional
 
 from . import db
@@ -84,6 +85,7 @@ def build_packet(holding: Holding, market_weather: str,
         news_digest=news_digest,
         market_weather=market_weather,
         market_regime=market_regime or {},
+        as_of_date=date.today().isoformat(),
         data_warnings=warnings,
     )
 
@@ -139,6 +141,7 @@ def run_analysis(trigger: str) -> int:
                     "confidence": decision.confidence,
                     "rationale": decision.rationale,
                     "key_risks": decision.key_risks,
+                    "alternatives": decision.alternatives,
                     "evidence_packet": packet.to_dict(),
                 },
             )
