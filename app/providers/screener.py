@@ -6,9 +6,12 @@ callers fall back to yfinance. One request per stock per run (daily) is polite.
 """
 from __future__ import annotations
 
+import logging
 import re
 import urllib.request
 from typing import Dict, List, Optional
+
+log = logging.getLogger("app.screener")
 
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -31,9 +34,11 @@ def _fetch(url: str) -> Optional[str]:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=20) as resp:
             if resp.status != 200:
+                log.debug("screener fetch %s -> HTTP %s", url, resp.status)
                 return None
             return resp.read().decode("utf-8", "replace")
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log.debug("screener fetch %s failed: %s", url, exc)
         return None
 
 
@@ -106,7 +111,9 @@ def fetch_company_data(ticker: str) -> Dict:
         if not ratios:
             continue
         ratios["shareholding"] = _parse_shareholding(html)
+        log.debug("screener: %s -> %s", sym, ratios.get("source"))
         return ratios
+    log.info("screener: no data for %s (will use yfinance fundamentals)", sym)
     return {}
 
 

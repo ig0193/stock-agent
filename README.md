@@ -6,6 +6,7 @@ fundamentals, sector strength, news and a shared market-weather note, then sugge
 a per-stock action — **BUY / HOLD / CUT / SELL** — with a confidence score and the
 reasoning behind it. **It only advises; it never trades.**
 
+**New here?** Follow the step-by-step **[SETUP.md](SETUP.md)** to install and run.
 See [DESIGN.md](DESIGN.md) for the full design.
 
 ## Setup
@@ -16,13 +17,28 @@ python3 -m venv .venv
 ```
 
 Optional (recommended) — enables the full hybrid LLM analysis. Without it the agent
-falls back to a transparent rule-based decision so it still works:
+falls back to a transparent (macro-aware) rule-based decision so it still works.
+Provide the key either via your shell or a `.env` file (auto-loaded; gitignored):
 
 ```bash
+# option A: shell
 export ANTHROPIC_API_KEY=sk-ant-...
-# optional model override (default: claude-sonnet-4-6)
-export STOCK_AGENT_MODEL=claude-sonnet-4-6
+
+# option B: .env file in the project root
+cp .env.example .env   # then edit ANTHROPIC_API_KEY
 ```
+
+Must be a billable **API** key from https://console.anthropic.com/settings/keys
+(separate from your Claude Code login). Optional overrides:
+`STOCK_AGENT_MODEL` (default `claude-sonnet-4-6`) and `STOCK_AGENT_LOG_LEVEL`
+(`INFO`, or `DEBUG` for per-fetch detail).
+
+## Logging
+
+The backend logs to stdout. On startup it prints whether the LLM is enabled, e.g.
+`Stock Analysis Agent starting — LLM ENABLED (model=…)`. During a run you'll see
+per-stock progress, the market regime, the decision path (LLM vs fallback), timings,
+and any data warnings — so it's clear what's happening and why a decision was made.
 
 ## Run the web UI
 

@@ -8,9 +8,15 @@ Wire into cron, e.g. weekdays at 16:00 IST (after market close):
 """
 from app import db
 from app.analysis import run_analysis
+from app.config import llm_status, load_env
+from app.logging_config import setup_logging
 
 
 def main() -> None:
+    load_env()
+    setup_logging()
+    import logging
+    logging.getLogger("app").info("Scheduled run — %s", llm_status())
     db.init_db()
     run_id = run_analysis("scheduled")
     run = db.get_run(run_id)

@@ -1,6 +1,7 @@
 """FastAPI app: runs list, run detail, portfolio editors, trigger runs."""
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from datetime import datetime
@@ -12,8 +13,15 @@ from fastapi.templating import Jinja2Templates
 
 from . import db
 from .analysis import run_analysis
+from .config import llm_status, load_env
+from .logging_config import setup_logging
 from .models import KIND_MANUAL, KIND_SCHEDULED, VALID_KINDS, Holding
 from .portfolio_io import parse_csv
+
+load_env()
+setup_logging()
+log = logging.getLogger("app.main")
+log.info("Stock Analysis Agent starting — %s", llm_status())
 
 BASE_DIR = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -114,6 +122,7 @@ KIND_LABELS = {KIND_SCHEDULED: "Automated (scheduled) run",
 
 
 def _run_in_background(trigger: str) -> None:
+    log.info("Triggering '%s' analysis run in background", trigger)
     threading.Thread(target=run_analysis, args=(trigger,), daemon=True).start()
 
 

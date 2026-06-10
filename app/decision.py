@@ -10,12 +10,15 @@ This module does *judgment + narrative* on top of the evidence packet:
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from typing import Dict
 
 from .models import Decision
 
 MODEL = os.environ.get("STOCK_AGENT_MODEL", "claude-sonnet-4-6")
+log = logging.getLogger("app.decision")
 
 _RUBRIC = """You are a disciplined equity analyst for Indian (NSE/BSE) stocks.
 For the given holding you receive an evidence packet:
@@ -93,23 +96,30 @@ _TOOL = {
 
 
 def decide(packet: Dict) -> Decision:
+    ticker = packet.get("ticker", "?")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
         try:
             return _decide_llm(packet, api_key)
         except Exception as exc:  # noqa: BLE001 - any failure -> safe fallback
+            log.warning("%s: LLM decision failed (%s: %s) -> rule-based fallback",
+                        ticker, type(exc).__name__, exc)
             fallback = _decide_rules(packet)
             fallback.rationale = (
                 f"[LLM unavailable: {exc}. Rule-based fallback used.] "
                 + fallback.rationale
             )
             return fallback
+    log.info("%s: no ANTHROPIC_API_KEY set -> rule-based fallback", ticker)
     return _decide_rules(packet)
 
 
 def _decide_llm(packet: Dict, api_key: str) -> Decision:
     import anthropic
 
+    ticker = packet.get("ticker", "?")
+    log.info("%s: calling LLM (model=%s)", ticker, MODEL)
+    t0 = time.time()
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
         model=MODEL,
@@ -127,6 +137,12 @@ def _decide_llm(packet: Dict, api_key: str) -> Decision:
     for block in msg.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "record_decision":
             d = block.input
+            usage = getattr(msg, "usage", None)
+            tokens = (f"{usage.input_tokens}in/{usage.output_tokens}out"
+                      if usage else "n/a")
+            log.info("%s: LLM decided %s (%s%%) in %.1fs [%s tokens]",
+                     ticker, d.get("action"), d.get("confidence"),
+                     time.time() - t0, tokens)
             return Decision(
                 action=d["action"],
                 confidence=int(d["confidence"]),
