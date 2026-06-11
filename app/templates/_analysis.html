@@ -1,13 +1,19 @@
 {# Renders one recommendation's reasoning + evidence. Expects `rec`. #}
 {% if rec.stance %}<p class="stance">{{ rec.stance }}</p>{% endif %}
 {% if rec.distribution and rec.distribution | length > 1 %}
-<p class="lbl"><b>Conviction</b></p>
+<p class="lbl"><b>Conviction — and why each weight</b></p>
 <div class="dist">
   {% for d in rec.distribution %}
   <div class="dist-seg action-{{ d.action }}" style="flex:{{ d.confidence or 1 }}"
        title="{{ d.action | alabel }} {{ d.confidence }}%">{{ d.action | alabel }} {{ d.confidence }}%</div>
   {% endfor %}
 </div>
+<ul class="dist-why">
+  {% for d in rec.distribution %}
+  <li><span class="action action-{{ d.action }}">{{ d.action | alabel }} {{ d.confidence }}%</span>
+    {% if d.reason %}<span class="why-text">— {{ d.reason }}</span>{% endif %}</li>
+  {% endfor %}
+</ul>
 {% endif %}
 <p class="lbl"><b>Why</b></p>
 {% if rec.rationale %}

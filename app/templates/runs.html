@@ -4,22 +4,24 @@
   <div class="card">
     <h3>{{ labels['manual'] }}</h3>
     <p>{{ counts['manual'] }} holdings configured.</p>
-    <div class="row">
-      <a class="btn secondary" href="/portfolio/manual">Edit holdings</a>
-      <form method="post" action="/run/manual">
+    <form method="post" action="/run/manual" class="run-form">
+      <input name="title" placeholder="Run title (optional)" class="run-title">
+      <div class="row">
+        <a class="btn secondary" href="/portfolio/manual">Edit holdings</a>
         <button class="btn" {% if counts['manual'] == 0 %}disabled{% endif %}>▶ Run analysis now</button>
-      </form>
-    </div>
+      </div>
+    </form>
   </div>
   <div class="card">
     <h3>{{ labels['scheduled'] }}</h3>
     <p>{{ counts['scheduled'] }} holdings configured (used by the scheduled job).</p>
-    <div class="row">
-      <a class="btn secondary" href="/portfolio/scheduled">Edit holdings</a>
-      <form method="post" action="/run/scheduled">
+    <form method="post" action="/run/scheduled" class="run-form">
+      <input name="title" placeholder="Run title (optional)" class="run-title">
+      <div class="row">
+        <a class="btn secondary" href="/portfolio/scheduled">Edit holdings</a>
         <button class="btn" {% if counts['scheduled'] == 0 %}disabled{% endif %}>▶ Run scheduled set now</button>
-      </form>
-    </div>
+      </div>
+    </form>
   </div>
   <div class="card">
     <h3>Individual stock run</h3>
@@ -37,12 +39,13 @@
        hx-get="/runs" hx-trigger="every 4s" hx-select="table.runs" hx-swap="outerHTML"
        {% endif %}>
   <thead>
-    <tr><th>#</th><th>When</th><th>Trigger</th><th>Status</th><th>Stocks</th></tr>
+    <tr><th>#</th><th>Title</th><th>When</th><th>Trigger</th><th>Status</th><th>Stocks</th></tr>
   </thead>
   <tbody>
     {% for r in runs %}
     <tr class="clickable" onclick="window.location='/runs/{{ r.id }}'">
       <td>{{ r.id }}</td>
+      <td><b>{{ r.title or '—' }}</b></td>
       <td>{{ r.created_at | dt }}</td>
       <td><span class="tag">{{ r.trigger }}</span></td>
       <td>

@@ -59,4 +59,5 @@ class Decision:
     rationale: List[str] = field(default_factory=list)   # bullet points
     key_risks: List[str] = field(default_factory=list)   # bullet points
     alternatives: List[Dict] = field(default_factory=list)  # non-primary distribution entries [{action, confidence}]
+    distribution: List[Dict] = field(default_factory=list)  # full split [{action, confidence, reason}]
     triggers: List[Dict] = field(default_factory=list)   # [{action, condition}] — what would change the call

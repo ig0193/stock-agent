@@ -91,7 +91,20 @@ Output:
   ~100, ordered by confidence (first = primary call). A single label often hides real
   ambiguity — when you are genuinely torn, SHOW it (e.g. HOLD 55 / CUT 35 / BUY 10).
   When you are clear, one action can carry most of the weight. Don't manufacture a
-  split that the evidence doesn't support, and don't collapse a real one.
+  split that the evidence doesn't support, and don't collapse a real one. Each entry
+  must include a SHORT `reason` justifying its weight — what supports that action and
+  what caps it — so the user understands exactly why each percentage is what it is
+  (e.g. HOLD 60% "thesis intact, weakness is market-wide"; CUT 25% "RSI 67 + near
+  highs make trimming reasonable"; BUY 15% "momentum strong but market is risk-off").
+- CALIBRATION (important): HOLD is a perfectly valid primary call, and in a weak or
+  uncertain market it is completely fine for MOST or ALL positions to be HOLD. Do NOT
+  manufacture BUY/CUT/SELL just to look decisive. BUT the primary's confidence must
+  reflect genuine conviction, using the full 0-100 range — do not park every call at
+  55-65%. A HOLD with no offsetting signals and no reason to act is a HIGH-confidence
+  HOLD (80-90). A HOLD where there is a real but not decisive case to trim or add is a
+  LOWER-confidence HOLD (50-60) with that pull reflected in the distribution. Two
+  positions that are genuinely different (one settled, one borderline) should NOT get
+  the same confidence.
 - stance: one plain-English sentence telling the holder what to actually do, capturing
   any nuance the labels miss. It must follow from the evidence and the distribution.
 - rationale: 3-6 SHORT bullet points, each a single specific claim; state whether any
@@ -143,8 +156,12 @@ _TOOL = {
                         "action": {"type": "string",
                                    "enum": ["BUY", "HOLD", "CUT", "SELL", "WATCH", "AVOID"]},
                         "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+                        "reason": {"type": "string",
+                                   "description": "One short phrase explaining WHY this action "
+                                                  "carries this weight — what supports it and "
+                                                  "what holds it back from being higher."},
                     },
-                    "required": ["action", "confidence"],
+                    "required": ["action", "confidence", "reason"],
                 },
             },
             "rationale": {
@@ -203,16 +220,20 @@ def build_client_and_system(system_text):
 
     oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
     api_key = os.environ.get("ANTHROPIC_API_KEY")
+    # Bounded timeout + limited retries so a stalled API call fails fast (and falls
+    # back to the rule-based engine) instead of hanging the whole run.
+    opts = {"timeout": 120.0, "max_retries": 1}
     if oauth_token:
         client = anthropic.Anthropic(auth_token=oauth_token, api_key=None,
-                                     default_headers={"anthropic-beta": _OAUTH_BETA})
+                                     default_headers={"anthropic-beta": _OAUTH_BETA},
+                                     **opts)
         system = [
             {"type": "text", "text": _CLAUDE_CODE_IDENTITY},
             {"type": "text", "text": system_text},
         ]
         return client, system, "OAuth token"
     if api_key:
-        return anthropic.Anthropic(api_key=api_key), system_text, "API key"
+        return anthropic.Anthropic(api_key=api_key, **opts), system_text, "API key"
     raise RuntimeError("no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN configured")
 
 
@@ -242,7 +263,7 @@ def _decide_llm(packet: Dict) -> Decision:
     t0 = time.time()
     msg = client.messages.create(
         model=MODEL,
-        max_tokens=3072,  # must fit rationale + risks + triggers + alternatives
+        max_tokens=4096,  # must fit distribution+reasons, rationale, risks, triggers
         system=system,
         tools=[_TOOL],
         tool_choice={"type": "tool", "name": "record_decision"},
@@ -267,12 +288,14 @@ def _decide_llm(packet: Dict) -> Decision:
                 act = item.get("action")
                 if act in ACTIONS and act not in seen:
                     seen.add(act)
-                    dist.append({"action": act, "confidence": int(item.get("confidence", 0))})
+                    dist.append({"action": act,
+                                 "confidence": int(item.get("confidence", 0)),
+                                 "reason": (item.get("reason") or "").strip()})
             dist.sort(key=lambda x: -x["confidence"])
             if not dist:
                 raise RuntimeError("empty distribution")
             primary = dist[0]
-            alts = dist[1:]
+            alts = [{"action": x["action"], "confidence": x["confidence"]} for x in dist[1:]]
             dist_str = ", ".join(f"{x['action']} {x['confidence']}%" for x in dist)
             log.info("%s: LLM decided [%s] in %.1fs [%s tokens]",
                      ticker, dist_str, time.time() - t0, tokens)
@@ -288,6 +311,7 @@ def _decide_llm(packet: Dict) -> Decision:
                 rationale=list(d.get("rationale") or []),
                 key_risks=list(d.get("key_risks") or []),
                 alternatives=alts,
+                distribution=dist,
                 triggers=triggers,
             )
     raise RuntimeError("model did not return a structured decision")
@@ -357,6 +381,8 @@ def _decide_rules(packet: Dict) -> Decision:
             stance=_RULE_STANCE.get(action, ""),
             rationale=_rule_rationale(reasons, score, macro_note),
             key_risks=_RULE_RISKS, alternatives=[],
+            distribution=[{"action": action, "confidence": confidence,
+                           "reason": "Heuristic call from trend + market regime (no LLM)."}],
             triggers=_rule_triggers(tech, is_watch=True),
         )
 
@@ -409,6 +435,8 @@ def _decide_rules(packet: Dict) -> Decision:
                     stance=_RULE_STANCE.get(action, ""),
                     rationale=_rule_rationale(reasons, score, macro_note),
                     key_risks=_RULE_RISKS, alternatives=[],
+                    distribution=[{"action": action, "confidence": confidence,
+                                   "reason": "Heuristic call from trend + market regime (no LLM)."}],
                     triggers=_rule_triggers(tech, is_watch=False))
 
 

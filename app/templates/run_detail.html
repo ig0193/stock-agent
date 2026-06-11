@@ -2,11 +2,11 @@
 {% block title %}Run #{{ run.id }}{% endblock %}
 {% block content %}
 <p><a href="/runs">&larr; All runs</a></p>
-<h2>Run #{{ run.id }}
+<h2>{{ run.title or 'Run #' ~ run.id }}
   <span class="status status-{{ run.status }}">{{ run.status }}</span>
   <span class="tag">{{ run.trigger }}</span>
 </h2>
-<p class="muted">{{ run.created_at | dt }}</p>
+<p class="muted">Run #{{ run.id }} · {{ run.created_at | dt }}</p>
 
 {% if run.error %}
   <p class="banner err">{{ run.error }}</p>
@@ -23,7 +23,7 @@
 <table class="recs">
   <thead>
     <tr>
-      <th>Ticker</th><th>Action</th><th>Conf.</th>
+      <th>Ticker</th><th>Recommendation (conviction split)</th>
       <th>Avg buy</th><th>Current</th><th>P&amp;L %</th><th></th>
     </tr>
   </thead>
@@ -31,8 +31,18 @@
     {% for rec in recs %}
     <tr class="rec-row" onclick="window.location='/runs/{{ run.id }}/stock/{{ rec.id }}'">
       <td><b>{{ rec.ticker }}</b>{% if rec.evidence_packet.is_watchlist %} <span class="tag">watchlist</span>{% endif %}</td>
-      <td><span class="action action-{{ rec.action }}">{{ rec.action | alabel }}</span></td>
-      <td>{{ rec.confidence }}%</td>
+      <td class="dist-cell">
+        <div class="distbar" title="{% for d in rec.distribution %}{{ d.action | alabel }} {{ d.confidence }}%{% if not loop.last %} · {% endif %}{% endfor %}">
+          {% for d in rec.distribution %}
+          <div class="distbar-seg action-{{ d.action }}" style="width:{{ d.confidence or 0 }}%"></div>
+          {% endfor %}
+        </div>
+        <div class="distbar-legend">
+          {% for d in rec.distribution %}
+          <span class="lg action-{{ d.action }}"><i></i>{{ d.action | alabel }} {{ d.confidence }}%</span>
+          {% endfor %}
+        </div>
+      </td>
       <td>{{ '%.2f' % rec.avg_buy_price if rec.avg_buy_price is not none else '—' }}</td>
       <td>{{ '%.2f' % rec.current_price if rec.current_price is not none else '—' }}</td>
       <td class="{{ 'pos' if (rec.unrealized_pnl_pct or 0) >= 0 else 'neg' }}">

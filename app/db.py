@@ -43,7 +43,8 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS runs (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at     TEXT NOT NULL,
-                trigger        TEXT NOT NULL,       -- 'scheduled' | 'manual'
+                trigger        TEXT NOT NULL,       -- 'scheduled' | 'manual' | 'individual'
+                title          TEXT,                -- user-friendly label for the run
                 status         TEXT NOT NULL,       -- 'running' | 'done' | 'failed'
                 market_weather TEXT,
                 error          TEXT
@@ -82,6 +83,12 @@ def init_db() -> None:
             conn.execute("ALTER TABLE recommendations ADD COLUMN triggers TEXT")
         if "stance" not in cols:
             conn.execute("ALTER TABLE recommendations ADD COLUMN stance TEXT")
+        if "distribution" not in cols:
+            conn.execute("ALTER TABLE recommendations ADD COLUMN distribution TEXT")
+        run_cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(runs)").fetchall()}
+        if "title" not in run_cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN title TEXT")
 
         # Migration: make holdings.qty / avg_buy_price nullable (watchlist support).
         # SQLite can't drop a NOT NULL constraint in place, so rebuild the table.
@@ -192,11 +199,12 @@ def get_holdings_with_ids(kind: str) -> List[Dict]:
 
 # ---------- Runs / recommendations ----------
 
-def create_run(trigger: str) -> int:
+def create_run(trigger: str, title: Optional[str] = None) -> int:
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO runs (created_at, trigger, status) VALUES (?, ?, 'running')",
-            (_now(), trigger),
+            "INSERT INTO runs (created_at, trigger, title, status) "
+            "VALUES (?, ?, ?, 'running')",
+            (_now(), trigger, title),
         )
         return int(cur.lastrowid)
 
@@ -217,8 +225,8 @@ def add_recommendation(run_id: int, rec: Dict) -> None:
             INSERT INTO recommendations
               (run_id, ticker, qty, avg_buy_price, current_price, unrealized_pnl_pct,
                action, confidence, stance, rationale, key_risks, alternatives, triggers,
-               evidence_packet)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               distribution, evidence_packet)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -234,6 +242,7 @@ def add_recommendation(run_id: int, rec: Dict) -> None:
                 json.dumps(rec.get("key_risks")),
                 json.dumps(rec.get("alternatives") or []),
                 json.dumps(rec.get("triggers") or []),
+                json.dumps(rec.get("distribution") or []),
                 json.dumps(rec.get("evidence_packet", {})),
             ),
         )
@@ -243,7 +252,7 @@ def list_runs() -> List[Dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT r.id, r.created_at, r.trigger, r.status, r.error,
+            SELECT r.id, r.created_at, r.trigger, r.title, r.status, r.error,
                    COUNT(rec.id) AS n_recs
             FROM runs r
             LEFT JOIN recommendations rec ON rec.run_id = r.id
@@ -273,8 +282,24 @@ def _as_list(value):
     return [parsed] if parsed else []
 
 
-# Action ordering for display (most urgent first).
-_ACTION_ORDER = {"SELL": 0, "CUT": 1, "AVOID": 2, "BUY": 3, "WATCH": 4, "HOLD": 5}
+_PASSIVE_ACTIONS = {"HOLD", "WATCH"}
+
+
+def _attention_score(rec) -> float:
+    """How much a position warrants attention, for cross-portfolio ranking.
+
+    Active calls (BUY/CUT/SELL/AVOID) always rank on top. Among passive calls
+    (HOLD/WATCH), those with the most pull toward an action — i.e. the highest
+    weight on any active action in the distribution — rank above settled ones.
+    This surfaces borderline holds without changing any call.
+    """
+    primary = rec.get("action")
+    conf = rec.get("confidence") or 0
+    if primary not in _PASSIVE_ACTIONS:
+        return 1000 + conf
+    active = [d.get("confidence") or 0 for d in rec.get("distribution", [])
+              if d.get("action") not in _PASSIVE_ACTIONS]
+    return max(active) if active else 0
 
 
 def _hydrate_rec(row) -> Dict:
@@ -288,9 +313,25 @@ def _hydrate_rec(row) -> Dict:
     d["alternatives"] = _as_list(d.get("alternatives"))
     d["triggers"] = _as_list(d.get("triggers"))
     d["stance"] = d.get("stance") or ""
-    # Full conviction distribution = primary (from action/confidence) + alternatives.
-    d["distribution"] = ([{"action": d.get("action"), "confidence": d.get("confidence")}]
-                         + [a for a in d["alternatives"] if isinstance(a, dict)])
+    # Prefer the stored full distribution (with per-action reasons). Fall back to
+    # reconstructing from primary + alternatives for rows written before that column.
+    stored_dist = _as_list(d.get("distribution"))
+    if stored_dist:
+        d["distribution"] = stored_dist
+    else:
+        d["distribution"] = ([{"action": d.get("action"), "confidence": d.get("confidence")}]
+                             + [a for a in d["alternatives"] if isinstance(a, dict)])
+    # When the primary is a passive HOLD/WATCH, surface the strongest pull toward an
+    # action so every hold shows which way it leans (if at all). The magnitude — not
+    # presence/absence — signals how settled the hold is; only a hold with no real
+    # tilt (top active weight < 10%) stays clean.
+    d["lean"] = None
+    if d.get("action") in ("HOLD", "WATCH"):
+        active = [a for a in d["alternatives"]
+                  if isinstance(a, dict) and a.get("action") not in ("HOLD", "WATCH")]
+        active.sort(key=lambda a: -(a.get("confidence") or 0))
+        if active and (active[0].get("confidence") or 0) >= 10:
+            d["lean"] = active[0]
     return d
 
 
@@ -301,8 +342,8 @@ def get_recommendations(run_id: int) -> List[Dict]:
             (run_id,),
         ).fetchall()
     recs = [_hydrate_rec(r) for r in rows]
-    recs.sort(key=lambda x: (_ACTION_ORDER.get(x.get("action"), 9),
-                             -(x.get("confidence") or 0)))
+    # Rank by attention: action-worthy / borderline positions surface to the top.
+    recs.sort(key=_attention_score, reverse=True)
     return recs
 
 

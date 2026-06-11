@@ -91,18 +91,29 @@ def build_packet(holding: Holding, market_weather: str,
     )
 
 
-def run_analysis(trigger: str, holdings: Optional[List[Holding]] = None) -> int:
+def _default_title(trigger: str, holdings: List[Holding]) -> str:
+    if trigger == "individual" and holdings:
+        names = ", ".join(h.ticker for h in holdings[:4])
+        return names + ("…" if len(holdings) > 4 else "")
+    return {"manual": "Manual run", "scheduled": "Scheduled run"}.get(
+        trigger, trigger.title() + " run")
+
+
+def run_analysis(trigger: str, holdings: Optional[List[Holding]] = None,
+                 title: Optional[str] = None) -> int:
     """Run analysis and persist a run with one recommendation per holding.
 
     `trigger` is recorded on the run ('scheduled' | 'manual' | 'individual').
     If `holdings` is given (e.g. an ad-hoc individual run), those are analyzed
     directly; otherwise the saved portfolio matching `trigger` is loaded.
+    `title` is a user-friendly label; a sensible default is used if blank.
     """
     if holdings is None:
         holdings = db.get_holdings(trigger)
-    run_id = db.create_run(trigger)
-    log.info("Run #%d started (trigger=%s) over %d holding(s)",
-             run_id, trigger, len(holdings))
+    title = (title or "").strip() or _default_title(trigger, holdings)
+    run_id = db.create_run(trigger, title=title)
+    log.info("Run #%d started (trigger=%s, title=%r) over %d holding(s)",
+             run_id, trigger, title, len(holdings))
 
     if not holdings:
         log.warning("Run #%d: no holdings configured for '%s' portfolio", run_id, trigger)
@@ -147,6 +158,7 @@ def run_analysis(trigger: str, holdings: Optional[List[Holding]] = None) -> int:
                     "rationale": decision.rationale,
                     "key_risks": decision.key_risks,
                     "alternatives": decision.alternatives,
+                    "distribution": decision.distribution,
                     "triggers": decision.triggers,
                     "evidence_packet": packet.to_dict(),
                 },

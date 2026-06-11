@@ -199,10 +199,11 @@ KIND_LABELS = {KIND_SCHEDULED: "Automated (scheduled) run",
                KIND_MANUAL: "Manual run"}
 
 
-def _run_in_background(trigger: str, holdings=None) -> None:
-    log.info("Triggering '%s' analysis run in background (%s holdings)",
-             trigger, "ad-hoc" if holdings is not None else "saved")
-    threading.Thread(target=run_analysis, args=(trigger, holdings), daemon=True).start()
+def _run_in_background(trigger: str, holdings=None, title=None) -> None:
+    log.info("Triggering '%s' analysis run in background (%s holdings, title=%r)",
+             trigger, "ad-hoc" if holdings is not None else "saved", title)
+    threading.Thread(target=run_analysis, args=(trigger, holdings, title),
+                     daemon=True).start()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -222,10 +223,10 @@ def runs_page(request: Request):
 
 
 @app.post("/run/{kind}")
-def trigger_run(kind: str):
+def trigger_run(kind: str, title: str = Form("")):
     if kind not in VALID_KINDS:
         return RedirectResponse(url="/runs", status_code=303)
-    _run_in_background(kind)
+    _run_in_background(kind, title=title)
     return RedirectResponse(url="/runs", status_code=303)
 
 
@@ -237,6 +238,7 @@ def individual_form(request: Request, err: str = ""):
 
 @app.post("/run/individual")
 def trigger_individual(
+    title: str = Form(""),
     ticker: List[str] = Form(default=[]),
     qty: List[str] = Form(default=[]),
     avg_buy_price: List[str] = Form(default=[]),
@@ -262,7 +264,7 @@ def trigger_individual(
     if not holdings:
         return RedirectResponse(url="/individual?err=Add+at+least+one+ticker",
                                 status_code=303)
-    _run_in_background("individual", holdings=holdings)
+    _run_in_background("individual", holdings=holdings, title=title)
     return RedirectResponse(url="/runs", status_code=303)
 
 

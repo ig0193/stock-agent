@@ -5,13 +5,18 @@ time-sensitive events.
 """
 from __future__ import annotations
 
+import logging
 import time
 import urllib.parse
+import urllib.request
 from typing import List
 
 import feedparser
 
+log = logging.getLogger("app.news")
 _MAX_HEADLINES = 8
+_TIMEOUT = 15
+_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
 
 def _entry_date(entry) -> str:
@@ -31,9 +36,15 @@ def fetch_headlines(query: str) -> List[str]:
         f"https://news.google.com/rss/search?q={q}"
         "&hl=en-IN&gl=IN&ceid=IN:en"
     )
+    # Fetch bytes with an explicit timeout (feedparser.parse(url) has none and can
+    # hang indefinitely), then parse the bytes.
     try:
-        feed = feedparser.parse(url)
-    except Exception:
+        req = urllib.request.Request(url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            raw = resp.read()
+        feed = feedparser.parse(raw)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("news fetch failed for %r: %s", query, exc)
         return []
     # Most recent first.
     entries = sorted(
